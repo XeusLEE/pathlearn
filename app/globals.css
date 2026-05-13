@@ -4,39 +4,42 @@
    Design tokens — Pathlearn (Duolingo-inspired, refined)
    ============================================================= */
 @theme {
-  --color-primary: #58cc02;
-  --color-primary-dark: #4ba802;
-  --color-primary-light: #89e219;
-  --color-primary-soft: #e7fbd1;
+  /* Purple primary — Pathlearn brand. Distinctive, energetic, friendly. */
+  --color-primary: #7c3aed;
+  --color-primary-dark: #5b21b6;
+  --color-primary-light: #a78bfa;
+  --color-primary-soft: #ede9fe;
 
-  --color-secondary: #1cb0f6;
-  --color-secondary-dark: #0e8fcc;
-  --color-secondary-soft: #d6f0ff;
+  /* Magenta secondary — pops against purple without fighting it. */
+  --color-secondary: #d946ef;
+  --color-secondary-dark: #a21caf;
+  --color-secondary-soft: #fbe9ff;
 
-  --color-purple: #ce82ff;
-  --color-purple-dark: #a560cc;
+  /* Light lilac accent — used for sparkles, soft fills. */
+  --color-purple: #c084fc;
+  --color-purple-dark: #9333ea;
 
-  --color-xp: #ffc800;
-  --color-xp-dark: #d9a900;
+  --color-xp: #f59e0b;
+  --color-xp-dark: #b45309;
 
-  --color-streak: #ff9600;
-  --color-streak-dark: #cc7800;
+  --color-streak: #f97316;
+  --color-streak-dark: #c2410c;
 
-  --color-heart: #ff4b4b;
-  --color-heart-dark: #cc3a3a;
+  --color-heart: #ef4444;
+  --color-heart-dark: #b91c1c;
 
   --color-locked: #e5e5e5;
-  --color-locked-dark: #afafaf;
+  --color-locked-dark: #9ca3af;
 
-  /* Cooler neutrals (was #fffefb cream — read slightly off against the lime). */
-  --color-bg: #fafafa;
+  /* White-forward neutrals, gently warmed with a hint of lilac. */
+  --color-bg: #fcfaff;
   --color-surface: #ffffff;
-  --color-surface-muted: #f1f3f5;
-  --color-ink: #1f2933;
-  --color-ink-muted: #6b7785;
-  --color-ink-soft: #afb5bd;
-  --color-border: #e3e6ea;
-  --color-border-soft: #eef0f3;
+  --color-surface-muted: #f5f3ff;
+  --color-ink: #1c1632;
+  --color-ink-muted: #6b6884;
+  --color-ink-soft: #aaa6c0;
+  --color-border: #e7e3f1;
+  --color-border-soft: #f1eef9;
 
   /* Display = Bricolage Grotesque (geometric, distinctive). Body = Nunito. */
   --font-display: var(--font-bricolage), "Nunito", "ui-sans-serif", "system-ui", sans-serif;
@@ -217,9 +220,17 @@ button,
 .snap-x-mandatory {
   scroll-snap-type: x mandatory;
   scroll-padding-left: 1rem;
+  /* Legacy iOS momentum scrolling. Modern WebKit ignores it but it's still
+     useful for older iOS Safari (pre-13). Harmless on other browsers. */
+  -webkit-overflow-scrolling: touch;
 }
 .snap-start {
   scroll-snap-align: start;
+}
+
+/* Generic horizontally-scrollable row helper (apply alongside overflow-x-auto). */
+.scroll-touch {
+  -webkit-overflow-scrolling: touch;
 }
 
 /* =============================================================
@@ -310,10 +321,10 @@ button,
 @keyframes ring-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(88, 204, 2, 0.55);
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55);
   }
   50% {
-    box-shadow: 0 0 0 14px rgba(88, 204, 2, 0);
+    box-shadow: 0 0 0 14px rgba(124, 58, 237, 0);
   }
 }
 .animate-ring-pulse {
@@ -329,8 +340,35 @@ button,
 }
 
 /* =============================================================
+   Landscape compaction — phones held sideways have <500px height.
+   Pulls sticky headers/intros tight so quiz CTAs stay reachable
+   above the soft keyboard or screen edge.
+   ============================================================= */
+@media (orientation: landscape) and (max-height: 480px) {
+  .compact-landscape-header {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .compact-landscape-header > * {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+  }
+  .compact-landscape-hero {
+    padding-top: 1rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  .compact-landscape-mascot {
+    height: 3rem !important;
+    width: 3rem !important;
+  }
+}
+
+/* =============================================================
    Reduced motion — kill infinite animations + cap transitions.
-   Required for WCAG 2.3.3.
+   Required for WCAG 2.3.3. We also disable smooth-scroll so
+   programmatic scrollIntoView doesn't animate, and zero out the
+   `animate-float-slow` / `animate-ring-pulse` utilities so they
+   visibly stop rather than just play a 0.01ms loop forever.
    ============================================================= */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -340,5 +378,9 @@ button,
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  .animate-float-slow,
+  .animate-ring-pulse {
+    animation: none !important;
   }
 }

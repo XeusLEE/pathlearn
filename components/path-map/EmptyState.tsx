@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Upload, Sparkles } from "lucide-react";
+import { Mascot } from "@/components/gamification";
 
 /**
  * Shown when there's no course in the store. Encourages the user to head back
@@ -27,7 +28,7 @@ export function EmptyState() {
           {/* Glow disc */}
           <div className="absolute inset-0 -z-10 rounded-full bg-primary-soft blur-2xl" />
           <div className="flex h-32 w-32 items-center justify-center rounded-full bg-surface border-2 border-border shadow-pop">
-            <span className="text-7xl drop-shadow-sm select-none">🦉</span>
+            <Mascot size={108} mood="wave" backdrop={false} />
           </div>
           <motion.div
             initial={{ scale: 0, rotate: -20 }}

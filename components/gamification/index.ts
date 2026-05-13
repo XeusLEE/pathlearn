@@ -41,4 +41,11 @@ export type {
 export { Mascot } from "./Mascot";
 export type { MascotProps, MascotMood } from "./Mascot";
 
+export { Tentacle } from "./Tentacle";
+export type {
+  TentacleProps,
+  TentacleAnchor,
+  TentacleMood,
+} from "./Tentacle";
+
 export { vibrate, playTone } from "./feedback";

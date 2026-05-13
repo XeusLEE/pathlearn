@@ -70,7 +70,7 @@ export function SampleDocs({ onPick }: SampleDocsProps) {
       <div className="text-xs uppercase tracking-wider font-extrabold text-ink-soft mb-2">
         Or try a sample
       </div>
-      <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 pb-1">
+      <div className="flex gap-2 overflow-x-auto no-scrollbar scroll-touch snap-x-mandatory -mx-1 px-1 pb-1">
         {SAMPLES.map((s, i) => (
           <motion.button
             key={s.id}
@@ -85,7 +85,7 @@ export function SampleDocs({ onPick }: SampleDocsProps) {
               damping: 18,
             }}
             whileTap={{ scale: 0.96 }}
-            className="shrink-0 inline-flex items-center gap-2 rounded-full bg-surface border-2 border-border-soft hover:border-primary/60 hover:bg-primary-soft transition-colors px-4 py-2 text-sm font-extrabold text-ink shadow-pop-soft"
+            className="snap-start shrink-0 inline-flex items-center gap-2 rounded-full bg-surface border-2 border-border-soft hover:border-primary/60 hover:bg-primary-soft transition-colors px-4 min-h-[44px] py-2 text-sm font-extrabold text-ink shadow-pop-soft"
           >
             <span className="text-base leading-none">{s.emoji}</span>
             <span>{s.title}</span>

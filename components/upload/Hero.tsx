@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { Mascot } from "@/components/gamification";
 
 /**
  * Top hero block: bold display headline, subhead, mascot, and a deliberate
@@ -9,8 +10,8 @@ import { motion } from "framer-motion";
  */
 export function Hero() {
   return (
-    <section className="relative pt-10 pb-6 md:pt-16 md:pb-10">
-      <div className="relative grid gap-8 md:grid-cols-[1.15fr_1fr] md:items-center">
+    <section className="compact-landscape-hero relative pt-8 pb-6 md:pt-16 md:pb-10">
+      <div className="relative grid gap-6 md:gap-8 md:grid-cols-[1.15fr_1fr] md:items-center">
         {/* Left — copy + mascot. Children stagger-in via parent variants. */}
         <motion.div
           initial="hidden"
@@ -23,31 +24,23 @@ export function Hero() {
           }}
           className="text-center md:text-left"
         >
-          {/* Mascot */}
+          {/* Mascot — the purple octopus */}
           <motion.div
             variants={{
               hidden: { opacity: 0, y: 12 },
               show: { opacity: 1, y: 0 },
             }}
-            className="mx-auto md:mx-0 mb-5 inline-flex relative"
+            className="mx-auto md:mx-0 mb-5 inline-flex relative compact-landscape-mascot"
           >
             <div
-              className="absolute inset-0 rounded-full blur-xl opacity-60"
+              className="absolute inset-0 rounded-full blur-xl opacity-50"
               style={{
                 background:
-                  "radial-gradient(closest-side, #89e219, transparent 70%)",
+                  "radial-gradient(closest-side, #ce82ff, transparent 70%)",
               }}
               aria-hidden
             />
-            <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-primary-light to-primary shadow-pop-primary animate-float-slow">
-              <span
-                className="text-4xl select-none"
-                role="img"
-                aria-label="owl mascot"
-              >
-                🦉
-              </span>
-            </div>
+            <Mascot size={84} mood="happy" />
           </motion.div>
 
           <motion.h1
@@ -55,7 +48,7 @@ export function Hero() {
               hidden: { opacity: 0, y: 14 },
               show: { opacity: 1, y: 0 },
             }}
-            className="font-display text-5xl md:text-7xl lg:text-8xl font-black text-ink leading-[1.02] text-balance"
+            className="font-display text-[1.875rem] xs:text-[2.25rem] sm:text-5xl md:text-7xl lg:text-8xl font-black text-ink leading-[1.04] text-balance break-words [hyphens:auto]"
           >
             Turn boring notes into{" "}
             <span className="relative inline-block">

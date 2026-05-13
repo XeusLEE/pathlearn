@@ -147,7 +147,7 @@ export default function Page() {
       />
 
       {/* Top brand mark */}
-      <header className="relative z-10 max-w-6xl mx-auto px-5 md:px-8 pt-5 flex items-center justify-between">
+      <header className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5 md:px-8 pt-5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <BrandMark />
           <span className="font-display text-xl font-black tracking-tight">
@@ -160,7 +160,7 @@ export default function Page() {
         </div>
       </header>
 
-      <div className="relative z-10 max-w-6xl mx-auto px-5 md:px-8 pb-40 md:pb-16">
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-5 md:px-8 pb-40 md:pb-16">
         <Hero />
 
         {/* Card: tabs + input */}
@@ -264,7 +264,7 @@ export default function Page() {
             </div>
 
             {/* Inline status / hint */}
-            <div className="mt-4 text-xs font-bold text-ink-soft min-h-[1.25rem]">
+            <div className="mt-4 text-xs font-bold text-ink-soft min-h-[1.25rem] text-balance">
               {charCount === 0
                 ? "We need ~100 characters (one paragraph) so we can find concepts."
                 : charCount < MIN_CHARS
@@ -320,28 +320,29 @@ export default function Page() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.18, ease: SNAPPY }}
-            className="fixed top-4 left-1/2 -translate-x-1/2 z-40 px-4"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-40 px-4 max-w-[calc(100vw-1rem)]"
           >
             {toast.tone === "error" ? (
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-heart text-white border-2 border-heart-dark shadow-pop-heart px-4 py-2 font-extrabold text-sm">
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-heart text-white border-2 border-heart-dark shadow-pop-heart px-4 py-2 font-extrabold text-sm">
                 <span aria-hidden>⚠️</span>
-                <span>{toast.message}</span>
+                <span className="min-w-0 flex-1">{toast.message}</span>
                 <button
                   type="button"
                   onClick={() => {
                     setToast(null);
                     handleGenerate();
                   }}
-                  className="ml-2 inline-flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 transition-colors px-2.5 py-1.5 text-xs"
+                  aria-label="Try generating again"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 transition-colors px-2.5 py-1.5 text-xs min-h-[36px]"
                 >
                   <RefreshCw className="h-3.5 w-3.5" strokeWidth={3} />
                   Try again
                 </button>
               </div>
             ) : (
-              <div className="inline-flex items-center gap-2 rounded-2xl bg-surface text-ink border-2 border-border-soft shadow-pop-soft px-4 py-3 font-extrabold text-sm">
+              <div className="flex items-start gap-2 rounded-2xl bg-surface text-ink border-2 border-border-soft shadow-pop-soft px-4 py-3 font-extrabold text-sm">
                 <span aria-hidden>💡</span>
-                <span>{toast.message}</span>
+                <span className="min-w-0 flex-1">{toast.message}</span>
               </div>
             )}
           </motion.div>

@@ -13,7 +13,13 @@ interface PathTabsProps {
 
 /**
  * Horizontally-scrollable pill tabs for switching between LearningPaths.
- * Active tab is tinted with the path's themeColor; inactive ones are bordered.
+ *
+ * Responsive strategy (hybrid compact + scroll):
+ * - Below `sm:` (640px): inactive tabs collapse to emoji + counter only.
+ *   Active tab always shows its full title. This guarantees 3–4 paths fit
+ *   at 320–390px while still telling the user which path is selected.
+ * - At `sm:` and above: every tab shows its full title.
+ * - A right-edge gradient mask hints at horizontal overflow when present.
  */
 export function PathTabs({
   paths,
@@ -24,9 +30,16 @@ export function PathTabs({
   return (
     <div className="relative w-full">
       <div
-        className="no-scrollbar snap-x-mandatory flex w-full items-stretch gap-2 overflow-x-auto px-4 pb-3 pt-2"
+        className="no-scrollbar snap-x-mandatory scroll-touch flex w-full items-stretch gap-2 overflow-x-auto pb-3 pl-4 pr-6 pt-2"
         role="tablist"
         aria-label="Learning paths"
+        style={{
+          scrollPaddingLeft: "1rem",
+          WebkitMaskImage:
+            "linear-gradient(to right, black 0%, black 92%, transparent 100%)",
+          maskImage:
+            "linear-gradient(to right, black 0%, black 92%, transparent 100%)",
+        }}
       >
         {paths.map((path) => {
           const isActive = path.id === activePathId;
@@ -39,13 +52,14 @@ export function PathTabs({
               key={path.id}
               role="tab"
               aria-selected={isActive}
+              aria-label={`${path.title} (${progress.done} of ${progress.total} complete)`}
               onClick={() => {
                 if (typeof navigator !== "undefined") navigator.vibrate?.(8);
                 onSelect(path.id);
               }}
               whileTap={{ scale: 0.96, y: 2 }}
               animate={{ y: isActive ? -1 : 0 }}
-              className="snap-start group relative flex shrink-0 items-center gap-2 rounded-full border-2 px-3.5 py-2 text-sm font-extrabold transition-colors"
+              className="snap-start group relative flex min-h-[44px] shrink-0 items-center gap-2 rounded-full border-2 px-3.5 py-2 text-sm font-extrabold transition-colors"
               style={{
                 background: isActive ? hexWithAlpha(path.themeColor, 0.16) : "var(--color-surface)",
                 borderColor: isActive ? path.themeColor : "var(--color-border)",
@@ -56,7 +70,17 @@ export function PathTabs({
               }}
             >
               <span className="text-base leading-none">{path.iconEmoji}</span>
-              <span className="max-w-[10rem] truncate text-[0.85rem] tracking-tight">
+              {/*
+                Title visibility:
+                - Active tab: always visible (so the user knows which is selected).
+                - Inactive tabs: hidden below sm, visible at sm+.
+              */}
+              <span
+                className={
+                  (isActive ? "inline" : "hidden sm:inline") +
+                  " max-w-[10rem] truncate text-[0.85rem] tracking-tight"
+                }
+              >
                 {path.title}
               </span>
               <span

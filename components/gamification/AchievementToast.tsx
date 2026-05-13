@@ -56,7 +56,7 @@ export function AchievementToast({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="pointer-events-auto flex items-center gap-3 bg-surface border-2 border-xp shadow-pop-xp rounded-2xl pl-3 pr-5 py-3 min-w-[260px] max-w-[360px]"
+          className="pointer-events-auto flex items-center gap-3 bg-surface border-2 border-xp shadow-pop-xp rounded-2xl pl-3 pr-5 py-3 min-w-[240px] max-w-[min(360px,calc(100vw-32px))]"
           initial={{ y: -80, opacity: 0, scale: 0.92 }}
           animate={{ y: 0, opacity: 1, scale: 1 }}
           exit={{ y: -80, opacity: 0, scale: 0.95 }}

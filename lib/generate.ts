@@ -15,11 +15,11 @@ import type {
 } from "./types";
 
 const THEME_PALETTE = [
-  "#58cc02",
-  "#1cb0f6",
-  "#ce82ff",
-  "#ff9600",
-  "#ff4b4b",
+  "#7c3aed",
+  "#d946ef",
+  "#a855f7",
+  "#8b5cf6",
+  "#ec4899",
 ] as const;
 
 const SYSTEM_PROMPT = `You are the curriculum designer behind "Pathlearn" — a Duolingo-style quiz generator that turns any document into a gamified learning experience. The user gives you a document and you produce a complete, playable course as a single JSON object.
@@ -121,12 +121,12 @@ The JSON object MUST match this shape exactly:
 
 # Theme colors
 
-Rotate through this palette in order, one hex per path:
-["#58cc02", "#1cb0f6", "#ce82ff", "#ff9600", "#ff4b4b"]
-- Path 1 -> "#58cc02"
-- Path 2 -> "#1cb0f6"
-- Path 3 -> "#ce82ff"
-- Path 4 -> "#ff9600"
+Rotate through this purple-family palette in order, one hex per path:
+["#7c3aed", "#d946ef", "#a855f7", "#8b5cf6", "#ec4899"]
+- Path 1 -> "#7c3aed" (deep violet)
+- Path 2 -> "#d946ef" (fuchsia)
+- Path 3 -> "#a855f7" (purple)
+- Path 4 -> "#8b5cf6" (light violet)
 
 # Emojis
 

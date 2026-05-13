@@ -57,8 +57,8 @@ export function TopBar({
   }, [hearts, practiceMode]);
 
   return (
-    <header className="sticky top-0 z-30 bg-bg/95 pt-safe backdrop-blur">
-      <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3">
+    <header className="compact-landscape-header sticky top-0 z-30 bg-bg/95 pt-safe backdrop-blur">
+      <div className="mx-auto flex max-w-2xl items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3">
         <button
           type="button"
           onClick={onClose}

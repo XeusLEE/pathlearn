@@ -60,13 +60,16 @@ export function PasteText({
           inputMode="text"
           autoCapitalize="sentences"
           autoCorrect="on"
+          enterKeyHint="enter"
           spellCheck
           className={[
-            "w-full resize-none rounded-2xl bg-surface-muted",
+            "w-full max-w-full resize-none rounded-2xl bg-surface-muted",
             "border-2 border-border-soft focus:border-primary",
             "p-4 text-base font-medium text-ink placeholder:text-ink-soft",
             "outline-none transition-colors",
             "min-h-[120px] sm:min-h-[200px]",
+            // iOS keeps a 16px font for inputs to skip auto-zoom; tailwind's
+            // `text-base` is already 16px so this is safe.
           ].join(" ")}
         />
       </div>

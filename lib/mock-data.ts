@@ -17,7 +17,7 @@ export const MOCK_COURSE: Course = {
       id: "p1",
       title: "The Big Picture",
       description: "What photosynthesis is and why life depends on it.",
-      themeColor: "#58cc02",
+      themeColor: "#7c3aed",
       iconEmoji: "🌱",
       episodes: [
         {
@@ -132,7 +132,7 @@ export const MOCK_COURSE: Course = {
       id: "p2",
       title: "Inside the Chloroplast",
       description: "Where the light reactions actually happen.",
-      themeColor: "#1cb0f6",
+      themeColor: "#d946ef",
       iconEmoji: "🔬",
       episodes: [
         {
@@ -203,7 +203,7 @@ export const MOCK_COURSE: Course = {
       id: "p3",
       title: "Light & Dark Reactions",
       description: "How the two halves of photosynthesis hand off energy.",
-      themeColor: "#ce82ff",
+      themeColor: "#a855f7",
       iconEmoji: "⚡",
       episodes: [
         {

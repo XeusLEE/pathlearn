@@ -79,7 +79,7 @@ export function DailyGoalRing({
         key={wobble}
         animate={wobble ? { rotate: [0, -3, 2, 0] } : { rotate: 0 }}
         transition={{ duration: 0.22 }}
-        className="tap-target relative rounded-full bg-xp/15 hover:bg-xp/25 transition-colors px-1"
+        className="tap-target relative rounded-full bg-xp/15 hover:bg-xp/25 transition-colors"
       >
         <span className="relative inline-flex items-center justify-center" style={{ width: RING_SIZE, height: RING_SIZE }}>
           {/* Track */}
@@ -119,12 +119,6 @@ export function DailyGoalRing({
           />
         </span>
       </motion.button>
-      <span
-        className="absolute -bottom-1 left-1/2 -translate-x-1/2 px-1 rounded-full bg-surface text-[9px] font-extrabold text-xp-dark tabular-nums leading-none border border-xp-dark/20"
-        aria-hidden
-      >
-        {liveXpToday}/{dailyGoal}
-      </span>
 
       <AnimatePresence>
         {open && (

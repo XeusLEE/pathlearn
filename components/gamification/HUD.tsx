@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Flame, Heart, Plus } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   MAX_HEARTS,
   selectStreakAtRisk,
@@ -79,14 +79,15 @@ function PillButton({
   children,
 }: PillButtonProps) {
   const [wobble, setWobble] = useState(0);
+  const prefersReducedMotion = useReducedMotion();
   const animate = wobble
     ? { rotate: [0, -3, 2, 0] }
-    : pulse
+    : pulse && !prefersReducedMotion
     ? { scale: [1, 1.06, 1] }
     : { rotate: 0, scale: 1 };
   const transition = wobble
     ? { duration: 0.22 }
-    : pulse
+    : pulse && !prefersReducedMotion
     ? { repeat: Infinity, duration: 1.4, repeatDelay: 2.6 }
     : { duration: 0.18 };
   return (

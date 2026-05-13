@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import type { LearningPath, EpisodeResult } from "@/lib/types";
 import { EpisodeNode, type EpisodeStatus } from "./EpisodeNode";
-import { PathConnector } from "./PathConnector";
+import { PathConnector, type PathConnectorSegment } from "./PathConnector";
 import { Mascot, type MascotMood } from "./Mascot";
 
 interface PathMapProps {
@@ -15,14 +15,23 @@ interface PathMapProps {
 }
 
 // Layout constants — chosen to feel like a Duolingo level-select.
-const COLUMN_WIDTH = 360;
-const COLUMN_HALF = COLUMN_WIDTH / 2;
+const COLUMN_WIDTH_DESKTOP = 360;
 const NODE_DIAMETER = 80;
 const NODE_RADIUS = NODE_DIAMETER / 2;
-const ROW_SPACING = 150; // vertical distance between node centers
+// Vertical distance between node centers. Bumped from 150 → 172 so labels
+// rendered below each circle clear the next row's connector approach by
+// ~32px of breathing room (label height ≈ 28px → gap to next circle ≈ 64px).
+const ROW_SPACING = 172;
+// Width of the per-row absolute "slot" we render each node + label into.
+// Wider than NODE_DIAMETER so the label (capped at 136px) can extend
+// horizontally past the circle without clipping or breaking layout.
+const NODE_SLOT_WIDTH = 152;
+const NODE_SLOT_HALF = NODE_SLOT_WIDTH / 2;
 const TOP_PADDING = 56; // first node y-center inside the column
 const BOTTOM_PADDING = 96; // breathing room after last node
-const X_AMPLITUDE = 80; // max horizontal swing of the winding path
+// Max horizontal swing of the winding path. We clamp at runtime to keep nodes
+// inside the responsive column (see compute below).
+const X_AMPLITUDE_DESKTOP = 80;
 
 // Three simple decorative props rotated along the trail. Picked at index `i`
 // via DECORATION_ORDER so they're stable per row but feel scattered.
@@ -43,6 +52,35 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
   const justCompleted =
     completedCount > prevCompletedCountRef.current && completedCount > 0;
 
+  // Responsive column width: shrink so nodes never clip on narrow phones.
+  // We measure the container width post-mount (so SSR-safe) and re-measure on
+  // resize / orientation change.
+  const [columnWidth, setColumnWidth] = useState<number>(COLUMN_WIDTH_DESKTOP);
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => {
+      // Take whichever is smaller: viewport - 32px gutter, or desktop default.
+      const vw = window.innerWidth;
+      const next = Math.max(240, Math.min(COLUMN_WIDTH_DESKTOP, vw - 32));
+      setColumnWidth(next);
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, []);
+
+  // Amplitude must shrink with column so nodes don't clip on narrow viewports.
+  // Required interior padding = NODE_RADIUS + 8px breathing room.
+  const xAmplitude = Math.min(
+    X_AMPLITUDE_DESKTOP,
+    Math.max(16, columnWidth / 2 - NODE_RADIUS - 8)
+  );
+  const columnHalf = columnWidth / 2;
+
   // Compute per-episode status + winding offsets up-front.
   const layout = useMemo(() => {
     let activeAssigned = false;
@@ -58,8 +96,8 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
         status = "locked";
       }
       // Sinusoidal x-offset gives a smooth winding path.
-      const offsetX = Math.round(Math.sin(i * 0.9) * X_AMPLITUDE);
-      const centerX = COLUMN_HALF + offsetX;
+      const offsetX = Math.round(Math.sin(i * 0.9) * xAmplitude);
+      const centerX = columnHalf + offsetX;
       const centerY = TOP_PADDING + i * ROW_SPACING;
       // Boss = the LAST episode of the path AND difficulty 3 (so easy paths
       // don't get a boss treatment for a chill final ep).
@@ -67,7 +105,7 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
         i === path.episodes.length - 1 && episode.difficulty === 3;
       return { episode, status, offsetX, centerX, centerY, isBoss, completed };
     });
-  }, [path.episodes, completedEpisodes]);
+  }, [path.episodes, completedEpisodes, columnHalf, xAmplitude]);
 
   const totalHeight =
     TOP_PADDING +
@@ -84,6 +122,33 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
   );
 
   const activeIndex = layout.findIndex((row) => row.status === "active");
+
+  // Classify each inter-episode segment for the connector. The segment with
+  // its end at the active node is the "active" segment (a "you're heading
+  // here" lead-in). If episode 0 is the active node, there's no preceding
+  // segment to highlight — that's fine, the first segment then naturally
+  // remains "locked" (and the active-node circle itself carries the
+  // affordance). Per the spec note: "If the path starts with no completed
+  // episodes, the FIRST segment is active (leads to episode 0)" — we model
+  // that by tagging the segment whose endIndex == activeIndex.
+  const connectorSegments = useMemo<PathConnectorSegment[]>(() => {
+    if (layout.length < 2) return [];
+    const segs: PathConnectorSegment[] = [];
+    for (let i = 0; i < layout.length - 1; i++) {
+      const a = layout[i];
+      const b = layout[i + 1];
+      let state: PathConnectorSegment["state"];
+      if (a.status === "completed" && b.status === "completed") {
+        state = "completed";
+      } else if (a.status === "completed" && b.status === "active") {
+        state = "active";
+      } else {
+        state = "locked";
+      }
+      segs.push({ startIndex: i, endIndex: i + 1, state });
+    }
+    return segs;
+  }, [layout]);
   const lastCompletedIndex = (() => {
     for (let i = layout.length - 1; i >= 0; i--) {
       if (layout[i].status === "completed") return i;
@@ -136,26 +201,26 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
   const decoFill = shadeWithAlpha(path.themeColor, 0.25);
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full overflow-x-hidden">
       <motion.div
         ref={containerRef}
         layout
         className="relative mx-auto"
-        // Constrain to viewport on small phones (360px screens) while keeping
-        // the desktop column at 360px. The inline maxWidth wins over width.
         style={{
-          width: COLUMN_WIDTH,
-          maxWidth: `min(${COLUMN_WIDTH}px, calc(100vw - 32px))`,
+          width: columnWidth,
           height: totalHeight,
         }}
       >
-        {/* The continuous dotted trail (with completed-segment overlays). */}
+        {/* State-aware trail: per-segment completed / active / locked styles.
+            We still pass `completed` so the connector's back-compat code path
+            stays exercised; `segments` takes precedence and drives rendering. */}
         <PathConnector
           points={points}
-          width={COLUMN_WIDTH}
+          width={columnWidth}
           height={totalHeight}
-          stroke={shadeWithAlpha(path.themeColor, 0.45)}
+          stroke={shadeWithAlpha(path.themeColor, 0.85)}
           completed={completedFlags}
+          segments={connectorSegments}
         />
 
         {/* Decorative SVG props — themed to the path color. Every 3rd episode
@@ -165,15 +230,27 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
           if (i % 3 !== 1) return null;
           const slot = Math.floor(i / 3) % DECORATION_ORDER.length;
           const kind = DECORATION_ORDER[slot];
-          // Place the decoration on the opposite side of the node.
+          // Place the decoration on the opposite side of the node, pushed
+          // further out so it reads as ambient flora rather than colliding
+          // with the connector path or the row's label pill. We aim past the
+          // label's outer edge (~70px) plus the SVG half-size (18px) for
+          // a comfortable visual gap. Distance scales with column width;
+          // clamped so the SVG center stays >= 22px from any edge.
           const onLeft = row.offsetX > 0;
-          const x = onLeft ? row.centerX - 110 : row.centerX + 110;
-          const y = row.centerY - 8;
+          const decoOffset = Math.min(132, Math.max(92, columnWidth / 2.6));
+          const rawX = onLeft
+            ? row.centerX - decoOffset
+            : row.centerX + decoOffset;
+          const x = Math.max(22, Math.min(columnWidth - 22, rawX));
+          // Offset vertically so the decoration sits between rows rather
+          // than at a node center — adds a parallax-ish feel and keeps
+          // clear of the node's circle + label.
+          const y = row.centerY - 28;
           return (
             <motion.div
               key={`deco-${i}`}
               initial={{ opacity: 0, y: 6 }}
-              whileInView={{ opacity: 0.95, y: 0 }}
+              whileInView={{ opacity: 0.85, y: 0 }}
               viewport={{ once: true, margin: "-10% 0px" }}
               transition={{ duration: 0.6, delay: 0.05 * (i % 4) }}
               className="absolute z-0 select-none"
@@ -206,11 +283,16 @@ export function PathMap({ path, completedEpisodes }: PathMapProps) {
                 damping: 18,
                 delay: 0.04 * i,
               }}
+              // Wider slot than NODE_DIAMETER so the caption pill below the
+              // circle (max-w-[136px]) is centered cleanly on row.centerX.
+              // Connector SVG sits at z-0; this slot at z-10 — so the pill's
+              // bg-bg fill visually clips dots that would otherwise show
+              // through label text.
               className="absolute z-10 flex flex-col items-center"
               style={{
-                left: row.centerX - NODE_RADIUS,
+                left: row.centerX - NODE_SLOT_HALF,
                 top: row.centerY - NODE_RADIUS,
-                width: NODE_DIAMETER,
+                width: NODE_SLOT_WIDTH,
               }}
             >
               <div className="relative">

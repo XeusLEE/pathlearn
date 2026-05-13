@@ -11,6 +11,7 @@ const basePath =
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  devIndicators: false,
   ...(isStaticExport && {
     output: "export",
     images: { unoptimized: true },

@@ -7,6 +7,7 @@ import type { Episode, Question } from "@/lib/types";
 import { useApp } from "@/lib/store";
 import { TopBar } from "./TopBar";
 import { FeedbackBanner, type FeedbackResult } from "./FeedbackBanner";
+import { QuizTentacle } from "./QuizTentacle";
 import { MultipleChoice } from "./MultipleChoice";
 import { FillInBlank } from "./FillInBlank";
 import { TrueFalse } from "./TrueFalse";
@@ -303,6 +304,32 @@ export function QuizPlayer({
 
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden bg-bg">
+      {/* Peeking octopus tentacles — react to correct / wrong answers and
+          gesture toward the answer with a speech bubble on misses. Hidden
+          under sm: they crowd narrow screens; revealed on md+ where there's
+          breathing room. Sit BEHIND the question content but ABOVE the bg. */}
+      <QuizTentacle
+        anchor="left"
+        question={current?.question}
+        feedback={feedback}
+        className="fixed left-0 top-1/2 z-10 hidden -translate-y-1/2 md:block"
+      />
+      <QuizTentacle
+        anchor="right"
+        question={current?.question}
+        feedback={feedback}
+        className="fixed right-0 top-[58%] z-10 hidden -translate-y-1/2 md:block"
+      />
+      {/* Single small tentacle on mobile, peeking from the bottom-left corner
+          so it doesn't crowd the question. */}
+      <QuizTentacle
+        anchor="bottom"
+        question={current?.question}
+        feedback={feedback}
+        compact
+        className="fixed bottom-16 left-2 z-10 block md:hidden"
+      />
+
       <TopBar
         progress={progressForBar}
         total={totalForBar}
@@ -313,7 +340,7 @@ export function QuizPlayer({
       />
 
       {/* Question viewport */}
-      <main className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col px-5 pt-2 pb-8">
+      <main className="relative mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 sm:px-5 pt-2 pb-8">
         {current.isRetry ? (
           <div className="mb-3 flex w-fit flex-col gap-0.5 rounded-2xl bg-purple/15 px-3 py-1.5">
             <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-purple-dark">
@@ -375,7 +402,7 @@ export function QuizPlayer({
           submits and reports canSubmit=false). */}
       {feedback === null && canSubmit ? (
         <div className="sticky-footer">
-          <div className="mx-auto w-full max-w-2xl px-5">
+          <div className="mx-auto w-full max-w-2xl px-4 sm:px-5">
             <button
               type="button"
               onClick={() => submitFnRef.current()}

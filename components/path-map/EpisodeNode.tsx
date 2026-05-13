@@ -1,9 +1,10 @@
 "use client";
 
 import { forwardRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Lock, Crown } from "lucide-react";
 import type { Episode } from "@/lib/types";
+import { EpisodeIcon } from "./EpisodeIcon";
 
 export type EpisodeStatus = "locked" | "active" | "completed";
 
@@ -33,6 +34,7 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
     ref
   ) {
     const [shouldWobble, setShouldWobble] = useState(false);
+    const prefersReducedMotion = useReducedMotion();
     const isLocked = status === "locked";
     const isActive = status === "active";
     const isCompleted = status === "completed";
@@ -41,9 +43,17 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
     const handleClick = () => {
       if (isLocked) {
         // Brief wobble feedback for locked nodes — no haptic (don't reward
-        // a blocked tap).
+        // a blocked tap). Broadcast a 'pathlearn:locked-tap' so the path
+        // tentacle can react with a "Finish the one before first" bubble.
         setShouldWobble(true);
         window.setTimeout(() => setShouldWobble(false), 620);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("pathlearn:locked-tap", {
+              detail: { episodeId: episode.id },
+            })
+          );
+        }
         return;
       }
       // Only haptic for actionable taps.
@@ -72,9 +82,15 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
         {isBoss && (
           <motion.div
             initial={{ y: -2, opacity: 0, scale: 0.8 }}
-            animate={{ y: [0, -6, 0], opacity: 1, scale: 1 }}
+            animate={{
+              y: prefersReducedMotion ? 0 : [0, -6, 0],
+              opacity: 1,
+              scale: 1,
+            }}
             transition={{
-              y: { repeat: Infinity, duration: 1.3, ease: "easeInOut" },
+              y: prefersReducedMotion
+                ? { duration: 0 }
+                : { repeat: Infinity, duration: 1.3, ease: "easeInOut" },
               opacity: { duration: 0.35 },
               scale: { type: "spring", stiffness: 300, damping: 18 },
             }}
@@ -105,9 +121,15 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
         {isActive && !isBoss && (
           <motion.div
             initial={{ y: -2, opacity: 0, scale: 0.8 }}
-            animate={{ y: [0, -6, 0], opacity: 1, scale: 1 }}
+            animate={{
+              y: prefersReducedMotion ? 0 : [0, -6, 0],
+              opacity: 1,
+              scale: 1,
+            }}
             transition={{
-              y: { repeat: Infinity, duration: 1.1, ease: "easeInOut" },
+              y: prefersReducedMotion
+                ? { duration: 0 }
+                : { repeat: Infinity, duration: 1.1, ease: "easeInOut" },
               opacity: { duration: 0.35 },
               scale: { type: "spring", stiffness: 300, damping: 18 },
             }}
@@ -140,6 +162,8 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
         <motion.button
           type="button"
           onClick={handleClick}
+          data-episode-id={episode.id}
+          data-episode-status={status}
           aria-label={`${episode.title} — ${
             isLocked
               ? "locked"
@@ -176,16 +200,6 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
               : {}),
           }}
         >
-          {/* Glossy highlight */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-3 top-2 h-3 rounded-full opacity-50"
-            style={{
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,255,255,0))",
-            }}
-          />
-
           {/* Difficulty rings */}
           {!isLocked && difficultyRings > 0 && (
             <span
@@ -246,12 +260,14 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
             />
           ) : (
             <span
-              className={`leading-none drop-shadow-sm select-none ${
-                isBoss ? "text-4xl" : "text-3xl"
-              }`}
+              className="leading-none drop-shadow-sm select-none"
               aria-hidden
             >
-              {episode.iconEmoji}
+              <EpisodeIcon
+                emoji={episode.iconEmoji}
+                size={isBoss ? 44 : 38}
+                color="white"
+              />
             </span>
           )}
 
@@ -266,10 +282,15 @@ export const EpisodeNode = forwardRef<HTMLDivElement, EpisodeNodeProps>(
           )}
         </motion.button>
 
-        {/* Caption under the node */}
-        <div className="mt-2 max-w-[12rem] text-center">
+        {/* Caption under the node.
+            Constrained to a narrow pill so it sits within the node's vertical
+            column (and never extends into the connector's swept x-range).
+            `bg-bg` matches the page background so any connector dots drawn
+            behind it are visually masked — no more dots showing through
+            "WHY EARTH NEEDS IT" style labels. */}
+        <div className="mt-2 flex max-w-[136px] justify-center">
           <p
-            className={`text-[11px] font-extrabold uppercase tracking-wide leading-tight ${
+            className={`rounded-md bg-bg px-1.5 py-0.5 text-center text-[11px] font-extrabold uppercase tracking-wide leading-[1.15] ${
               isLocked ? "text-ink-soft" : "text-ink"
             }`}
           >

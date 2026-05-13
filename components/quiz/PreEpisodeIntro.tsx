@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { Play, Skull } from "lucide-react";
 import type { Episode } from "@/lib/types";
+import { EpisodeIcon } from "@/components/path-map/EpisodeIcon";
 
 interface PreEpisodeIntroProps {
   episode: Episode;
@@ -84,8 +85,8 @@ export function PreEpisodeIntro({
             boxShadow: `0 8px 0 0 ${shade(themeColor, -0.28)}`,
           }}
         >
-          <span className="text-7xl drop-shadow-sm">
-            {episode.iconEmoji}
+          <span className="drop-shadow-sm leading-none">
+            <EpisodeIcon emoji={episode.iconEmoji} size={64} color="white" />
           </span>
         </motion.div>
 

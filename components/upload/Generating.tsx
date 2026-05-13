@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { Mascot } from "@/components/gamification";
 
 /**
  * Honest stages, roughly tied to elapsed time. We don't know the actual
@@ -27,6 +28,7 @@ interface GeneratingProps {
  */
 export function Generating({ show, onCancel }: GeneratingProps) {
   const [elapsed, setElapsed] = useState(0);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (!show) {
@@ -73,38 +75,56 @@ export function Generating({ show, onCancel }: GeneratingProps) {
             <div className="relative">
               <div
                 aria-hidden
-                className="absolute inset-0 rounded-full blur-2xl opacity-70"
+                className="absolute inset-0 rounded-full blur-2xl opacity-60"
                 style={{
                   background:
-                    "radial-gradient(closest-side, #89e219, transparent 70%)",
+                    "radial-gradient(closest-side, #ce82ff, transparent 70%)",
                 }}
               />
               <motion.div
-                animate={{ y: [0, -14, 0] }}
-                transition={{
-                  duration: 1.4,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                }}
-                className="relative h-24 w-24 rounded-full bg-gradient-to-br from-primary-light to-primary flex items-center justify-center shadow-pop-primary"
+                animate={{ y: prefersReducedMotion ? 0 : [0, -14, 0] }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : {
+                        duration: 1.4,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }
+                }
+                className="relative flex items-center justify-center"
               >
-                <span className="text-5xl select-none" role="img" aria-label="owl">
-                  🦉
-                </span>
+                <Mascot size={104} mood="thinking" bob={false} />
               </motion.div>
               {/* Tiny floating sparkles */}
               <motion.span
                 aria-hidden
-                animate={{ y: [-2, -16, -2], opacity: [0.4, 1, 0.4] }}
-                transition={{ duration: 2, repeat: Infinity }}
+                animate={
+                  prefersReducedMotion
+                    ? { opacity: 1 }
+                    : { y: [-2, -16, -2], opacity: [0.4, 1, 0.4] }
+                }
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 2, repeat: Infinity }
+                }
                 className="absolute -top-2 -right-2 text-2xl"
               >
                 ✨
               </motion.span>
               <motion.span
                 aria-hidden
-                animate={{ y: [0, -10, 0], opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 2.4, repeat: Infinity, delay: 0.6 }}
+                animate={
+                  prefersReducedMotion
+                    ? { opacity: 1 }
+                    : { y: [0, -10, 0], opacity: [0.3, 1, 0.3] }
+                }
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 2.4, repeat: Infinity, delay: 0.6 }
+                }
                 className="absolute -bottom-1 -left-3 text-xl"
               >
                 ⭐
@@ -142,12 +162,20 @@ export function Generating({ show, onCancel }: GeneratingProps) {
           <div className="relative z-10 mt-6 w-full max-w-xs h-3 rounded-full bg-surface-muted overflow-hidden border-2 border-border-soft">
             <motion.div
               className="absolute top-0 bottom-0 w-1/3 rounded-full bg-gradient-to-r from-primary via-primary-light to-primary"
-              animate={{ x: ["-100%", "300%"] }}
-              transition={{
-                duration: 1.6,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
+              animate={
+                prefersReducedMotion
+                  ? { x: "100%" }
+                  : { x: ["-100%", "300%"] }
+              }
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0 }
+                  : {
+                      duration: 1.6,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }
+              }
             />
           </div>
 

@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { Clock, Target, Sparkles, RotateCcw, ArrowRight } from "lucide-react";
 import type { Episode } from "@/lib/types";
 import { Mascot } from "./Mascot";
+import { Tentacle } from "./Tentacle";
 import { LevelUpModal } from "./LevelUpModal";
 import { vibrate, playTone } from "./feedback";
 import { getAchievementInfo, type EpisodeCompletionResult } from "@/lib/store";
@@ -235,6 +236,47 @@ export function EpisodeCompleteScreen({
         aria-modal="true"
         aria-label="Episode complete"
       >
+        {/* Celebration tentacles — fan out from the bottom edges. */}
+        <div
+          aria-hidden
+          className="pointer-events-none fixed bottom-0 left-0 z-[68]"
+          style={{ transform: "translate(-10px, 30px) rotate(-15deg)" }}
+        >
+          <Tentacle
+            anchor="bottom"
+            length={140}
+            thickness={50}
+            curl="in"
+            mood="celebrating"
+          />
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none fixed bottom-0 right-0 z-[68]"
+          style={{ transform: "translate(10px, 30px) rotate(15deg)" }}
+        >
+          <Tentacle
+            anchor="bottom"
+            length={140}
+            thickness={50}
+            curl="out"
+            mood="celebrating"
+          />
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none fixed bottom-0 left-1/2 z-[67] hidden sm:block"
+          style={{ transform: "translate(-50%, 40px)" }}
+        >
+          <Tentacle
+            anchor="bottom"
+            length={110}
+            thickness={42}
+            curl="in"
+            mood="celebrating"
+          />
+        </div>
+
         <div className="flex-1 w-full max-w-md mx-auto px-6 pt-10 pb-4 flex flex-col items-center text-center overflow-y-auto">
           {/* Mascot */}
           <div className="animate-pop-in">

@@ -1,9 +1,9 @@
 "use client";
 
-import { Component, useEffect, useMemo, useState } from "react";
+import { Component, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X, Flame, Heart, Zap, ShieldCheck } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -12,6 +12,7 @@ import {
   selectStreakAtRisk,
 } from "@/lib/store";
 import { EmptyState, PathMap, PathTabs } from "@/components/path-map";
+import { PathTentacle, type PathTentacleEvent } from "@/components/path-map/PathTentacle";
 import { HUD as RealHUD } from "@/components/gamification";
 
 /**
@@ -77,6 +78,7 @@ export default function LearnPage() {
   const streakAtRisk = useApp(selectStreakAtRisk);
 
   const [activePathId, setActivePathId] = useState<string | null>(null);
+  const prefersReducedMotion = useReducedMotion();
 
   // Initialize / reconcile the active path whenever the course changes.
   useEffect(() => {
@@ -127,6 +129,152 @@ export default function LearnPage() {
     return next?.id ?? null;
   }, [course, activePath, completedEpisodes]);
 
+  // === Tentacle event state machine ==========================================
+  // Two tentacles (left + right) driven by `PathTentacleEvent`. Each event
+  // is timestamped so the PathTentacle's auto-dismiss timer retriggers when
+  // the same event type is sent twice in a row (e.g. two consecutive welcomes).
+  const [leftEvent, setLeftEvent] = useState<PathTentacleEvent>({
+    type: "idle",
+  });
+  const [leftTs, setLeftTs] = useState<number>(0);
+  const [rightEvent, setRightEvent] = useState<PathTentacleEvent>({
+    type: "idle",
+  });
+  const [rightTs, setRightTs] = useState<number>(0);
+
+  // Track the last user interaction (any click/scroll/keypress) so we can
+  // fire the "Try this one ↓" idle prompt after >8s of inactivity. Stored
+  // in a ref to avoid re-rendering on every mousemove.
+  const lastInteractionRef = useRef<number>(Date.now());
+  // Welcomed-paths set lives in a ref so a re-render doesn't reset it.
+  const welcomedPathsRef = useRef<Set<string>>(new Set());
+
+  // 1) Welcome bubble when activePathId changes — once per session per path.
+  useEffect(() => {
+    if (!activePath) return;
+    if (prefersReducedMotion) return;
+    if (welcomedPathsRef.current.has(activePath.id)) return;
+    welcomedPathsRef.current.add(activePath.id);
+    // Right tentacle pops the welcome.
+    setRightEvent({
+      type: "react",
+      message: `Welcome to ${activePath.title}!`,
+      durationMs: 3200,
+    });
+    setRightTs(Date.now());
+  }, [activePath, prefersReducedMotion]);
+
+  // 2) Celebrate on path completion. Drive BOTH tentacles for max joy.
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    if (!activePathComplete) return;
+    setLeftEvent({
+      type: "celebrate",
+      message: "Path conquered! 🎉",
+      durationMs: 4000,
+    });
+    setLeftTs(Date.now());
+    setRightEvent({
+      type: "celebrate",
+      message: "Next path?",
+      durationMs: 4000,
+    });
+    setRightTs(Date.now());
+  }, [activePathComplete, prefersReducedMotion]);
+
+  // 3) Idle nudge — after 8s of no interaction AND the active path isn't done
+  //    yet, the left tentacle whispers "Try this one ↓".
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    if (!activePath || activePathComplete) return;
+    const bump = () => {
+      lastInteractionRef.current = Date.now();
+    };
+    window.addEventListener("pointerdown", bump, { passive: true });
+    window.addEventListener("scroll", bump, { passive: true });
+    window.addEventListener("keydown", bump);
+    const interval = setInterval(() => {
+      const idleMs = Date.now() - lastInteractionRef.current;
+      if (idleMs > 8000) {
+        setLeftEvent({
+          type: "react",
+          message: "Try this one ↓",
+          durationMs: 3000,
+        });
+        setLeftTs(Date.now());
+        // Reset the timer so we don't spam — next nudge ~8s after this one.
+        lastInteractionRef.current = Date.now();
+      }
+    }, 2000);
+    return () => {
+      window.removeEventListener("pointerdown", bump);
+      window.removeEventListener("scroll", bump);
+      window.removeEventListener("keydown", bump);
+      clearInterval(interval);
+    };
+  }, [activePath, activePathComplete, prefersReducedMotion]);
+
+  // 3b) Locked-tap reaction — EpisodeNode now dispatches a custom event when
+  //     the user taps a locked node. Pop a helpful bubble.
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    const handler = () => {
+      setLeftEvent({
+        type: "react",
+        message: "Finish the one before first 🔒",
+        durationMs: 2800,
+      });
+      setLeftTs(Date.now());
+    };
+    window.addEventListener("pathlearn:locked-tap", handler);
+    return () => window.removeEventListener("pathlearn:locked-tap", handler);
+  }, [prefersReducedMotion]);
+
+  // 4) "Reach toward the active episode" — find the first uncompleted episode
+  //    node on screen and pass its y-coordinate to the left tentacle so it
+  //    bends in that direction. We only update when no transient event (react /
+  //    celebrate) is active, so reactions take precedence over the gesture.
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    if (!activePath) return;
+    if (leftEvent.type !== "idle" && leftEvent.type !== "reach") return;
+
+    const targetEpisode = activePath.episodes.find(
+      (ep) => !completedEpisodes[ep.id],
+    );
+    if (!targetEpisode) return;
+
+    // Find the rendered node via its DOM id (PathMap renders episodes with
+    // sequential anchors); fall back to a best-effort selector. If we can't
+    // find it, leave the tentacle idle rather than guessing.
+    let raf = 0;
+    const measure = () => {
+      const el =
+        document.querySelector(`[data-episode-id="${targetEpisode.id}"]`) ||
+        document.querySelector(".scroll-mt-\\[140px\\]");
+      if (el) {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        setLeftEvent({ type: "reach", targetY: rect.top + rect.height / 2 });
+        setLeftTs(Date.now());
+      }
+    };
+    raf = window.requestAnimationFrame(measure);
+    const onScroll = () => {
+      window.cancelAnimationFrame(raf);
+      raf = window.requestAnimationFrame(measure);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+    // Intentionally omit leftEvent.type from deps to avoid resubscribing on
+    // every reach-event update; we re-read it via the guard above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePath, completedEpisodes, prefersReducedMotion]);
+
   if (!course) {
     return <EmptyState />;
   }
@@ -161,17 +309,52 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="relative min-h-[100dvh] w-full bg-bg pb-safe">
+    <div className="relative min-h-[100dvh] w-full overflow-x-hidden bg-bg pb-safe">
       {/* Subtle dot-grid backdrop — replaces the layered blur-3xl blobs. */}
       <div
         aria-hidden
         className="dot-grid-bg pointer-events-none fixed inset-0 -z-10 opacity-60"
       />
 
+      {/* Peeking tentacles — proactive teammates that bend toward the active
+          episode, celebrate path completion, and pop helpful speech bubbles. */}
+      <PathTentacle
+        anchor="left"
+        baseTopPct={44}
+        length={160}
+        thickness={56}
+        curl="in"
+        event={leftEvent}
+        eventTimestamp={leftTs}
+        className="pointer-events-none fixed z-0 hidden lg:block"
+      />
+      <PathTentacle
+        anchor="right"
+        baseTopPct={72}
+        length={130}
+        thickness={48}
+        curl="out"
+        event={rightEvent}
+        eventTimestamp={rightTs}
+        className="pointer-events-none fixed z-0 hidden lg:block"
+      />
+      {/* Mobile companion — compact tentacle pinned to the bottom-left so
+          mobile users still get the proactive nudges + speech bubbles. */}
+      <PathTentacle
+        anchor="left"
+        length={90}
+        thickness={32}
+        curl="in"
+        event={leftEvent}
+        eventTimestamp={leftTs}
+        className="pointer-events-none fixed z-0 lg:hidden"
+        style={{ top: "auto", bottom: "5rem" }}
+      />
+
       {/* Sticky header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-bg/95 backdrop-blur supports-[backdrop-filter]:bg-bg/80">
+      <header className="compact-landscape-header sticky top-0 z-40 border-b border-border bg-bg/95 backdrop-blur supports-[backdrop-filter]:bg-bg/80">
         <div className="pt-safe" />
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-2.5">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3">
           <Link
             href="/"
             aria-label="Exit to home"
@@ -180,23 +363,14 @@ export default function LearnPage() {
             <X className="h-4 w-4" strokeWidth={3} />
           </Link>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              {course.isDemoMode && (
-                <span className="inline-flex shrink-0 items-center rounded-full bg-purple/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-[0.16em] text-purple-dark">
-                  Demo
-                </span>
-              )}
-              <p className="truncate text-sm font-bold tracking-tight text-ink">
-                {course.documentTitle}
-              </p>
-            </div>
-            {/* Daily-goal mini progress bar under the doc title. */}
-            <DailyGoalBar
-              xpToday={dailyProgress.xpToday}
-              goal={dailyProgress.goal}
-              percent={dailyProgress.percent}
-              hit={dailyProgress.hit}
-            />
+            <p className="text-sm font-bold tracking-tight text-ink line-clamp-2 leading-snug break-words">
+              {course.documentTitle}
+            </p>
+            {course.isDemoMode && (
+              <span className="mt-0.5 inline-flex items-center rounded-sm bg-purple/15 px-1 py-0 text-[8px] font-black uppercase tracking-[0.14em] text-purple-dark leading-tight">
+                Demo
+              </span>
+            )}
           </div>
           {/* HUD slot — Agent 5 — plus optional shield pill + badge count. */}
           <div className="flex shrink-0 items-center gap-2">
@@ -292,18 +466,20 @@ export default function LearnPage() {
               animate={{
                 y: 0,
                 opacity: 1,
-                x: [0, -1, 1, -1, 0],
+                x: prefersReducedMotion ? 0 : [0, -1, 1, -1, 0],
               }}
               exit={{ y: -8, opacity: 0 }}
               transition={{
                 y: { type: "spring", stiffness: 200, damping: 18 },
                 opacity: { duration: 0.25 },
-                x: {
-                  repeat: Infinity,
-                  repeatDelay: 8,
-                  duration: 0.5,
-                  ease: "easeInOut",
-                },
+                x: prefersReducedMotion
+                  ? { duration: 0 }
+                  : {
+                      repeat: Infinity,
+                      repeatDelay: 8,
+                      duration: 0.5,
+                      ease: "easeInOut",
+                    },
               }}
               className="mx-auto mb-3 w-full max-w-md px-4"
             >
@@ -332,7 +508,7 @@ export default function LearnPage() {
               className="relative"
             >
               {/* Path heading — the visible H1 of the screen. */}
-              <div className="mx-auto mb-4 flex max-w-md items-start gap-3 px-6">
+              <div className="mx-auto mb-4 flex max-w-md items-start gap-3 px-4 sm:px-6">
                 <span
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-border bg-surface text-2xl shadow-pop-soft"
                   style={{
@@ -344,14 +520,14 @@ export default function LearnPage() {
                   {activePath.iconEmoji}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h1 className="font-display text-3xl font-extrabold tracking-tight text-ink leading-[1.05]">
+                  <h1 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-ink leading-[1.05] text-balance break-words">
                     {activePath.title}
                   </h1>
-                  <p className="mt-1 text-sm leading-snug text-ink-muted">
+                  <p className="mt-1 text-sm leading-snug text-ink-muted break-words">
                     {activePath.description}
                   </p>
                   {course.summary && (
-                    <p className="mt-1.5 text-xs italic leading-snug text-ink-muted">
+                    <p className="mt-1.5 text-xs italic leading-snug text-ink-muted break-words">
                       &ldquo;{course.summary}&rdquo;
                     </p>
                   )}
@@ -369,44 +545,6 @@ export default function LearnPage() {
           )}
         </AnimatePresence>
       </main>
-    </div>
-  );
-}
-
-/**
- * Compact daily-goal progress bar shown in the header. The fill bar uses the
- * `bg-xp` token so the color reads the same as XP rewards elsewhere.
- */
-function DailyGoalBar({
-  xpToday,
-  goal,
-  percent,
-  hit,
-}: {
-  xpToday: number;
-  goal: number;
-  percent: number;
-  hit: boolean;
-}) {
-  return (
-    <div className="mt-1 flex items-center gap-1.5">
-      <div className="relative h-1.5 w-24 overflow-hidden rounded-full bg-surface-muted">
-        <motion.div
-          initial={false}
-          animate={{ width: `${percent}%` }}
-          transition={{ type: "spring", stiffness: 180, damping: 22 }}
-          className="absolute inset-y-0 left-0 rounded-full bg-xp"
-        />
-      </div>
-      {hit ? (
-        <span className="rounded-full bg-xp/20 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-ink">
-          ✓ Goal hit!
-        </span>
-      ) : (
-        <span className="text-[10px] font-bold tabular-nums text-ink-soft">
-          {xpToday}/{goal} XP
-        </span>
-      )}
     </div>
   );
 }
