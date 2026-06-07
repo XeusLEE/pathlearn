@@ -205,15 +205,12 @@ function bubbleFor(
     return { text: pick(CORRECT_CHEERS, seed), tone: "correct" };
   }
 
-  // Wrong → if the tentacle's tip is sitting on a specific DOM option,
-  // a short "pointing" caption is more powerful than restating the answer.
+  // Wrong → state the correct answer in the bubble. (The tentacles no longer
+  // physically point at the option, so the bubble must carry the answer.)
   if (!question) return { text: "Not quite.", tone: "wrong" };
-  if (isPointableType(question)) {
-    return { text: "It's this one →", tone: "wrong" };
-  }
   const ans = truncate(correctAnswerText(question));
   if (!ans) return { text: "Not quite.", tone: "wrong" };
-  return { text: `It's actually: ${ans}`, tone: "wrong" };
+  return { text: `It's: ${ans}`, tone: "wrong" };
 }
 
 /**
@@ -720,11 +717,13 @@ export function QuizTentacle({
           mood={mood}
           personality={personality ?? "curious"}
           segments={5}
-          target={trackingEnabled ? targetCenter : null}
-          basePosition={basePosition ?? undefined}
-          reachToTarget={wantReach}
-          maxStretch={1.6}
-          showTipCursor={showTipCursor}
+          /* Reach DISABLED: the tentacles now flank the question card and
+             simply curl + wave beside the options (the bubble teaches the
+             answer). Literal cross-screen reach depended on an edge-assumed
+             base position and produced stranded flat ribbons on wide screens. */
+          target={null}
+          reachToTarget={false}
+          showTipCursor={false}
         />
 
         {/* Speech bubble — only on the speaker (silent === false). */}

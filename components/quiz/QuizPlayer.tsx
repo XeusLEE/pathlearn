@@ -337,19 +337,18 @@ export function QuizPlayer({
 
       {/* Peeking octopus tentacles — react to correct / wrong answers and
           gesture toward the answer. Single-speaker pattern: exactly ONE
-          tentacle owns the speech bubble per viewport breakpoint.
-            • md+   : LEFT is the speaker; RIGHT is silent (supportive nodder).
-            • <md   : BOTTOM is the speaker (only one mounted on mobile).
-          The speaker physically reaches its TIP onto the correct DOM node
-          on a wrong answer (data-quiz-options + data-correct=true), so
-          the user sees exactly which option they should have picked. */}
+          curling octopus tentacles. On md+ they FLANK the centered question
+          card (not the far viewport edges) so they read as arms beside the
+          options; the speaker shows a bubble with the correct answer on a
+          wrong submit. On mobile a single tentacle sits at the bottom-left
+          (below the options) so it never overlaps the full-width card. */}
       <QuizTentacle
         anchor="left"
         personality="wise"
         silent={false}
         question={current?.question}
         feedback={feedback}
-        className="fixed left-0 top-[38%] z-10 hidden -translate-y-1/2 md:block"
+        className="fixed top-[42%] z-10 hidden -translate-y-1/2 md:block left-[max(0.5rem,calc(50%-29rem))]"
       />
       <QuizTentacle
         anchor="right"
@@ -357,11 +356,8 @@ export function QuizPlayer({
         silent
         question={current?.question}
         feedback={feedback}
-        className="fixed right-0 top-1/2 z-10 hidden -translate-y-1/2 md:block"
+        className="fixed top-[54%] z-10 hidden -translate-y-1/2 md:block left-[calc(50%+16rem)]"
       />
-      {/* Mobile speaker — left/right are hidden under md, so the bottom
-          tentacle IS the speaker here (silent={false}). Auto-tucks when the
-          on-screen keyboard opens for FillInBlank. */}
       <QuizTentacle
         anchor="bottom"
         personality="playful"

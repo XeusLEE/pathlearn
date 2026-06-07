@@ -395,13 +395,15 @@ export function Tentacle({
     for (let i = 0; i < jointCount; i++) {
       const t = jointCount === 1 ? 0 : i / (jointCount - 1);
       const x = length * t;
-      // Soft S-curve: sin(πt) gives one gentle hump along the body.
-      // Multiplied by curlDir flips the curl orientation.
-      const hump = Math.sin(t * Math.PI) * (viewH * 0.06) * curlDir;
-      // Tip bias: drop the very tip slightly so it droops a touch.
-      const tipBias =
-        i === jointCount - 1 ? curlDir * (viewH * 0.04) : 0;
-      pts.push({ x, y: midY + hump + tipBias });
+      // Pronounced resting S-curve so the arm reads as a curling tentacle
+      // (not a flat paddle): a generous mid-body hump in the curl direction,
+      // then a tip that hooks back the other way. Both scale with viewH so
+      // taller viewBoxes (thicker tentacles) curve proportionally.
+      const hump = Math.sin(t * Math.PI) * (viewH * 0.2) * curlDir;
+      // Tip hook: grows toward the tip (t^2.2) and curls opposite the hump,
+      // giving the end a graceful inward curl like a real tentacle.
+      const tipHook = Math.pow(t, 2.2) * (viewH * 0.18) * curlDir;
+      pts.push({ x, y: midY + hump - tipHook });
     }
     return pts;
   }, [jointCount, length, viewH, midY, curlDir]);
