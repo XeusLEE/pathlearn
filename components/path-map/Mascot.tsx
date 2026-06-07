@@ -129,6 +129,10 @@ export function Mascot({
           // below for grounding instead.
           backdrop={false}
           bob={mood === "idle"}
+          // NOTE: we intentionally do NOT pass cosmeticsEnabled here, so the
+          // perched octopus inherits the player's equipped hat / skin / aura
+          // from the store (the gamification Mascot defaults cosmeticsEnabled
+          // to true and reads equipped cosmetics when no overrides are given).
         />
       </motion.div>
 

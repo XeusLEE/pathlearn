@@ -48,4 +48,14 @@ export type {
   TentacleMood,
 } from "./Tentacle";
 
+// -------- Cosmetics / coin economy --------
+export { CoinPill, CoinIcon } from "./CoinPill";
+
+export { MascotHat } from "./cosmetics/MascotHat";
+export { MascotAura } from "./cosmetics/MascotAura";
+export { TentacleTrail } from "./cosmetics/TentacleTrail";
+
+export { ScreenFX } from "./ScreenFX";
+export type { ScreenReaction } from "./ScreenFX";
+
 export { vibrate, playTone } from "./feedback";

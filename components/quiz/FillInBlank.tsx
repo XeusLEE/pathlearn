@@ -151,7 +151,10 @@ export function FillInBlank({
         Fill in the blank
       </h2>
 
-      <div className="font-display mb-6 flex flex-wrap items-center gap-x-2 gap-y-3 text-2xl tracking-tight leading-snug text-ink md:text-3xl">
+      <div
+        className="font-display mb-6 flex flex-wrap items-center gap-x-2 gap-y-3 text-2xl tracking-tight leading-snug text-ink md:text-3xl"
+        data-quiz-options="fill_in_blank"
+      >
         {before ? <span>{before}</span> : null}
         <input
           type="text"
@@ -167,6 +170,8 @@ export function FillInBlank({
           onKeyDown={onKeyDown}
           placeholder="…"
           aria-label="Your answer"
+          data-quiz-input="fill_in_blank"
+          data-correct-answer={question.answer}
           className={`min-w-[8ch] max-w-full rounded-xl border-2 bg-surface px-3 py-2 text-2xl font-black tracking-tight text-ink outline-none transition-colors focus:border-primary md:text-3xl ${
             submitted
               ? matchKind === "exact"

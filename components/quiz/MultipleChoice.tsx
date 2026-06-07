@@ -57,7 +57,7 @@ export function MultipleChoice({
         {question.prompt}
       </h2>
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3" data-quiz-options="multiple_choice">
         {question.options.map((opt, i) => {
           const isSelected = selected === i;
           const isCorrectOpt = i === question.correctIndex;
@@ -89,6 +89,10 @@ export function MultipleChoice({
               }}
               whileTap={locked ? undefined : { scale: 0.985 }}
               className={classes}
+              data-quiz-option={i}
+              data-quiz-option-text={opt}
+              data-correct={String(i === question.correctIndex)}
+              data-selected={String(selected === i)}
               style={
                 {
                   "--accent": accent,

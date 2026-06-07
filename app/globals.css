@@ -56,6 +56,70 @@
    ============================================================= */
 :root {
   color-scheme: light;
+
+  /* Mascot / tentacle skin tokens. A skin overrides these on a wrapper
+     (see lib/cosmetics.ts skinCssVars); components read them with a purple
+     fallback so the default look is unchanged when nothing is equipped. */
+  --mascot-fill: var(--color-purple);
+  --mascot-fill-dark: var(--color-purple-dark);
+  --mascot-light: var(--color-primary-light);
+  --mascot-accent: var(--color-primary);
+  --mascot-fill-2: var(--color-purple);
+}
+
+/* =============================================================
+   Cosmetics — shared keyframes for shop, coins, trails, and auras.
+   Component agents may add inline animations too; these are the
+   common ones so they don't collide on globals.
+   ============================================================= */
+@keyframes coin-bounce {
+  0% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-8px) scale(1.18); }
+  100% { transform: translateY(0) scale(1); }
+}
+.animate-coin-bounce { animation: coin-bounce 480ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+@keyframes coin-spin {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(360deg); }
+}
+.animate-coin-spin { animation: coin-spin 2.2s linear infinite; }
+
+@keyframes shop-pop-in {
+  0% { transform: scale(0.8) translateY(10px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.animate-shop-pop-in { animation: shop-pop-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+/* Trail / aura particle motions */
+@keyframes cosmetic-float-up {
+  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translate(var(--drift, 0px), -34px) scale(1); opacity: 0; }
+}
+@keyframes cosmetic-twinkle {
+  0%, 100% { transform: scale(0.7); opacity: 0.25; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+@keyframes aura-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.12); opacity: 0.85; }
+}
+@keyframes aura-petal-fall {
+  0% { transform: translate(0, -10px) rotate(0deg); opacity: 0; }
+  15% { opacity: 0.9; }
+  100% { transform: translate(var(--drift, 12px), 60px) rotate(220deg); opacity: 0; }
+}
+@keyframes aura-snow-fall {
+  0% { transform: translate(0, -8px); opacity: 0; }
+  20% { opacity: 0.9; }
+  100% { transform: translate(var(--drift, 6px), 56px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-coin-spin,
+  .animate-coin-bounce,
+  .animate-shop-pop-in { animation: none !important; }
 }
 
 html,
@@ -360,6 +424,11 @@ button,
   .compact-landscape-mascot {
     height: 3rem !important;
     width: 3rem !important;
+  }
+  /* Hide the path-map tentacles in short-landscape viewports; the usable
+     height is too tight for them to coexist with the path UI. */
+  .tentacle-hide-short-landscape {
+    display: none !important;
   }
 }
 

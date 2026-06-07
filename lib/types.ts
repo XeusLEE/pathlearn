@@ -130,6 +130,21 @@ export interface ProgressState {
   lastShieldGrantedDate: string;
   /** Achievement IDs the user has earned. */
   earnedAchievements: string[];
+  /** Spendable coin balance for the cosmetics shop. */
+  coins: number;
+  /** Cosmetic IDs the user owns (always includes "skin_default"). */
+  ownedCosmetics: string[];
+  /** Currently equipped cosmetic per slot. */
+  equipped: EquippedCosmetics;
+}
+
+/** One equipped cosmetic id per slot (null = nothing equipped in that slot). */
+export interface EquippedCosmetics {
+  hat: string | null;
+  /** Skin is never null — defaults to "skin_default". */
+  skin: string;
+  trail: string | null;
+  aura: string | null;
 }
 
 // ============================================================================

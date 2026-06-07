@@ -125,6 +125,7 @@ export function Ordering({
         {question.prompt}
       </h3>
 
+      <div data-quiz-options="ordering" className="contents">
       {/* Answer area */}
       <div
         className={`mb-4 min-h-[120px] rounded-2xl border-2 border-dashed bg-surface-muted/60 p-3 transition-colors ${
@@ -161,6 +162,9 @@ export function Ordering({
                       type="button"
                       disabled={submitted || locked}
                       onClick={() => moveBackToTray(chip)}
+                      data-quiz-order-item={chip.originalIndex}
+                      data-quiz-order-correct-pos={chip.originalIndex}
+                      data-quiz-order-zone="answer"
                       className={`flex w-full min-h-[48px] items-center gap-3 rounded-xl border-2 px-4 py-3 text-left text-sm font-bold transition-colors ${
                         isFirstWrong
                           ? "border-heart bg-heart/10 text-heart"
@@ -207,6 +211,9 @@ export function Ordering({
               type="button"
               disabled={submitted || locked}
               onClick={() => moveToAnswer(chip)}
+              data-quiz-order-item={chip.originalIndex}
+              data-quiz-order-correct-pos={chip.originalIndex}
+              data-quiz-order-zone="tray"
               className="card-pop min-h-[48px] px-4 py-2.5 text-sm font-bold text-ink active:translate-y-[2px]"
             >
               {chip.text}
@@ -216,6 +223,7 @@ export function Ordering({
         {tray.length === 0 ? (
           <div className="text-sm font-bold text-ink-soft">All placed.</div>
         ) : null}
+      </div>
       </div>
     </div>
   );

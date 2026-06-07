@@ -8,19 +8,40 @@
 // chips, a PB / improvement chip, and a "Continue" CTA. When a
 // `completionResult.leveledUp` is provided, a <LevelUpModal />
 // auto-mounts above this screen.
+//
+// CINEMATIC CELEBRATION — the screen mounts a fleet of "smart" tentacles
+// around the edges of the viewport that REACH OUT toward the mascot,
+// hugging it. The number, position, mood, and personality of the
+// tentacles vary based on the celebration intensity:
+//
+//   • Default: 4 mobile / 6 desktop tentacles from the bottom edges
+//     and corners. Mood = "celebrating", varied personalities.
+//   • Perfect score: +2 tentacles fall in from the top corners,
+//     converging on the mascot for a starburst-hug effect.
+//   • Level-up: every tentacle switches to mood="wiggling".
+//   • Path-conquered: every tentacle switches to personality="playful".
+//
+// A SINGLE shared rAF poll computes the mascot's screen rect once per
+// frame, so adding more tentacles costs basically nothing in animation
+// budget — they all read from the same state.
 // =============================================================
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import confetti from "canvas-confetti";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Clock, Target, Sparkles, RotateCcw, ArrowRight } from "lucide-react";
 import type { Episode } from "@/lib/types";
 import { Mascot } from "./Mascot";
-import { Tentacle } from "./Tentacle";
+import {
+  Tentacle,
+  type TentacleAnchor,
+  type TentacleMood,
+} from "./Tentacle";
 import { LevelUpModal } from "./LevelUpModal";
 import { vibrate, playTone } from "./feedback";
 import { getAchievementInfo, type EpisodeCompletionResult } from "@/lib/store";
 import { useToasts } from "./AchievementToast";
+import { CoinIcon } from "./CoinPill";
 
 export interface EpisodeCompleteNextEpisode {
   pathId: string;
@@ -117,7 +138,7 @@ export function EpisodeCompleteScreen({
   const { push: pushToast } = useToasts();
 
   const [levelUpOpen, setLevelUpOpen] = useState(
-    !!completionResult?.leveledUp
+    !!completionResult?.leveledUp,
   );
 
   // Confetti + sound + haptic — exactly once on first render.
@@ -182,7 +203,7 @@ export function EpisodeCompleteScreen({
             title: info.title,
             subtitle: info.subtitle,
           });
-        }, 800 + i * 600)
+        }, 800 + i * 600),
       );
     });
     return () => {
@@ -222,6 +243,8 @@ export function EpisodeCompleteScreen({
 
   const unlocked = completionResult?.achievementsUnlocked ?? [];
   const pathConquered = unlocked.includes("path_complete");
+  const leveledUp = !!completionResult?.leveledUp;
+  const coinsAwarded = completionResult?.coinsAwarded ?? 0;
 
   // Primary CTA wiring. If `nextEpisode + onPlayNext`, that's primary.
   // Else "Back to map" via onContinue.
@@ -236,51 +259,26 @@ export function EpisodeCompleteScreen({
         aria-modal="true"
         aria-label="Episode complete"
       >
-        {/* Celebration tentacles — fan out from the bottom edges. */}
-        <div
-          aria-hidden
-          className="pointer-events-none fixed bottom-0 left-0 z-[68]"
-          style={{ transform: "translate(-10px, 30px) rotate(-15deg)" }}
-        >
-          <Tentacle
-            anchor="bottom"
-            length={140}
-            thickness={50}
-            curl="in"
-            mood="celebrating"
-          />
-        </div>
-        <div
-          aria-hidden
-          className="pointer-events-none fixed bottom-0 right-0 z-[68]"
-          style={{ transform: "translate(10px, 30px) rotate(15deg)" }}
-        >
-          <Tentacle
-            anchor="bottom"
-            length={140}
-            thickness={50}
-            curl="out"
-            mood="celebrating"
-          />
-        </div>
-        <div
-          aria-hidden
-          className="pointer-events-none fixed bottom-0 left-1/2 z-[67] hidden sm:block"
-          style={{ transform: "translate(-50%, 40px)" }}
-        >
-          <Tentacle
-            anchor="bottom"
-            length={110}
-            thickness={42}
-            curl="in"
-            mood="celebrating"
-          />
-        </div>
+        {/* Celebration tentacles — a responsive fleet that reaches toward the
+            mascot. Count, mood, and personality respond to the celebration
+            intensity (perfect / level-up / path-conquered). They share a
+            single rAF poll for the mascot's screen rect. */}
+        <CelebrationTentacles
+          isPerfect={isPerfect}
+          leveledUp={leveledUp}
+          pathConquered={pathConquered}
+          wiggleHarder={levelUpOpen}
+        />
 
         <div className="flex-1 w-full max-w-md mx-auto px-6 pt-10 pb-4 flex flex-col items-center text-center overflow-y-auto">
-          {/* Mascot */}
-          <div className="animate-pop-in">
-            <Mascot mood="celebrate" size={132} />
+          {/* Mascot — celebration tentacles bend toward this element.
+              For level-up runs we render the new "level_up" mood, which
+              gives the mascot star eyes; otherwise plain "celebrate". */}
+          <div className="animate-pop-in" data-celebrate-anchor>
+            <Mascot
+              mood={leveledUp ? "level_up" : "celebrate"}
+              size={132}
+            />
           </div>
 
           {/* Perfect badge */}
@@ -383,11 +381,41 @@ export function EpisodeCompleteScreen({
             />
           </div>
 
+          {/* Coins reward — gold chip with a spring/pop entrance. Only shown
+              when this completion actually granted coins (replays at 0 coins
+              omit it so the screen stays tasteful). */}
+          {coinsAwarded > 0 && (
+            <motion.div
+              className="mt-4 inline-flex items-center gap-2 rounded-full border-2 border-xp bg-xp/15 px-4 py-2 shadow-pop-xp"
+              initial={{ scale: 0, y: 10, rotate: -8 }}
+              animate={{ scale: 1, y: 0, rotate: 0 }}
+              transition={{
+                type: "spring",
+                stiffness: 280,
+                damping: 14,
+                delay: 0.46,
+              }}
+              aria-label={`Earned ${coinsAwarded} coins`}
+            >
+              <span className="animate-coin-bounce inline-flex">
+                <CoinIcon size={22} />
+              </span>
+              <span className="text-lg font-black tabular-nums text-ink">
+                +{coinsAwarded}
+              </span>
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-ink-muted">
+                coins
+              </span>
+            </motion.div>
+          )}
+
           {/* Achievement chips */}
           {unlocked.length > 0 && (
             <div className="w-full mt-6">
               <p className="text-[11px] font-extrabold uppercase tracking-wider text-ink-muted mb-2 text-center">
-                {unlocked.length === 1 ? "Achievement unlocked" : "Achievements unlocked"}
+                {unlocked.length === 1
+                  ? "Achievement unlocked"
+                  : "Achievements unlocked"}
               </p>
               <div className="flex flex-wrap justify-center gap-2">
                 {unlocked.map((id, i) => {
@@ -432,7 +460,11 @@ export function EpisodeCompleteScreen({
                 <span className="truncate">
                   Continue to &ldquo;{nextEpisode!.title}&rdquo;
                 </span>
-                <ArrowRight size={18} strokeWidth={3} className="ml-2 flex-shrink-0" />
+                <ArrowRight
+                  size={18}
+                  strokeWidth={3}
+                  className="ml-2 flex-shrink-0"
+                />
               </button>
               <button
                 type="button"
@@ -476,5 +508,367 @@ export function EpisodeCompleteScreen({
         />
       )}
     </>
+  );
+}
+
+// =============================================================
+// CelebrationTentacles — internal helper that mounts a responsive
+// fleet of tentacles around the edges of the celebration screen.
+// They share a single rAF poll for the mascot's bounding rect and
+// each REACH toward it with `reachToTarget={true}` and a glowing
+// `showTipCursor` so it looks like they're embracing the mascot.
+//
+// Composition:
+//   • 6 bottom tentacles on ≥sm (4 base + 2 mid). Default = 4 on <sm.
+//   • +2 top-corner tentacles on isPerfect (≥sm only — phones stay
+//     clean during a perfect run).
+// =============================================================
+
+interface CelebrationTentacleDef {
+  /** Edge of the screen the tentacle base sits on. */
+  anchor: TentacleAnchor;
+  /** Personality drives subtle motion timing variation. */
+  personality: "playful" | "curious" | "wise" | "shy";
+  /** Pixel-percent left of viewport for the visible base. */
+  leftPct: number;
+  /** Pixel-percent top of viewport for the visible base. */
+  topPct: number;
+  /** Outer transform — keeps the original "tilt and peek" feel. */
+  outerTransform: string;
+  /** Tentacle visual props. */
+  length: number;
+  thickness: number;
+  curl: "in" | "out";
+  /** Stagger index for entrance delay (200ms + i * 120ms). */
+  staggerIdx: number;
+  /** Tailwind class for responsive visibility (e.g. "hidden sm:block"). */
+  visibility?: string;
+  /** Optional segments override for extra-smooth tentacles. */
+  segments?: number;
+}
+
+/**
+ * Stable definitions for the celebration tentacles. Includes:
+ *   • 4 base tentacles (always visible).
+ *   • 2 desktop-only bottom helpers (`hidden sm:block`).
+ *   • Top-corner tentacles for perfect runs (mounted conditionally).
+ *
+ * `staggerIdx` controls entrance order; the consumer maps it to delay.
+ */
+const BASE_TENTACLES: CelebrationTentacleDef[] = [
+  // Outer bottom-left
+  {
+    anchor: "bottom",
+    personality: "playful",
+    leftPct: 0,
+    topPct: 100,
+    outerTransform: "translate(-10px, 30px) rotate(-15deg)",
+    length: 150,
+    thickness: 52,
+    curl: "in",
+    staggerIdx: 0,
+    segments: 4,
+  },
+  // Outer bottom-right
+  {
+    anchor: "bottom",
+    personality: "curious",
+    leftPct: 100,
+    topPct: 100,
+    outerTransform: "translate(10px, 30px) rotate(15deg)",
+    length: 150,
+    thickness: 52,
+    curl: "out",
+    staggerIdx: 1,
+    segments: 4,
+  },
+  // Inner-left (desktop only)
+  {
+    anchor: "bottom",
+    personality: "playful",
+    leftPct: 30,
+    topPct: 100,
+    outerTransform: "translate(-50%, 40px)",
+    length: 120,
+    thickness: 44,
+    curl: "in",
+    staggerIdx: 2,
+    visibility: "hidden sm:block",
+    segments: 4,
+  },
+  // Inner-right (desktop only)
+  {
+    anchor: "bottom",
+    personality: "wise",
+    leftPct: 70,
+    topPct: 100,
+    outerTransform: "translate(-50%, 40px)",
+    length: 120,
+    thickness: 44,
+    curl: "out",
+    staggerIdx: 3,
+    visibility: "hidden sm:block",
+    segments: 4,
+  },
+  // Mid bottom-left (mobile-too — keeps the <sm fleet at 4)
+  {
+    anchor: "bottom",
+    personality: "shy",
+    leftPct: 18,
+    topPct: 100,
+    outerTransform: "translate(-50%, 38px) rotate(-6deg)",
+    length: 110,
+    thickness: 38,
+    curl: "in",
+    staggerIdx: 4,
+  },
+  // Mid bottom-right (mobile-too — total 4 on <sm)
+  {
+    anchor: "bottom",
+    personality: "shy",
+    leftPct: 82,
+    topPct: 100,
+    outerTransform: "translate(-50%, 38px) rotate(6deg)",
+    length: 110,
+    thickness: 38,
+    curl: "out",
+    staggerIdx: 5,
+  },
+];
+
+/** Top-corner tentacles. Mounted only when isPerfect, ≥sm only. */
+const PERFECT_TOP_TENTACLES: CelebrationTentacleDef[] = [
+  {
+    anchor: "top",
+    personality: "playful",
+    leftPct: 0,
+    topPct: 0,
+    outerTransform: "translate(-10px, -20px) rotate(-25deg)",
+    length: 160,
+    thickness: 48,
+    curl: "in",
+    staggerIdx: 6,
+    visibility: "hidden sm:block",
+    segments: 4,
+  },
+  {
+    anchor: "top",
+    personality: "playful",
+    leftPct: 100,
+    topPct: 0,
+    outerTransform: "translate(10px, -20px) rotate(25deg)",
+    length: 160,
+    thickness: 48,
+    curl: "out",
+    staggerIdx: 7,
+    visibility: "hidden sm:block",
+    segments: 4,
+  },
+];
+
+interface CelebrationTentaclesProps {
+  isPerfect: boolean;
+  leveledUp: boolean;
+  pathConquered: boolean;
+  /** When true, all tentacles switch to a faster "wiggling" mood. */
+  wiggleHarder: boolean;
+}
+
+function CelebrationTentacles({
+  isPerfect,
+  leveledUp,
+  pathConquered,
+  wiggleHarder,
+}: CelebrationTentaclesProps) {
+  const reducedMotion = useReducedMotion();
+  // Shared rAF-poll of the mascot anchor. We poll once for the whole fleet so
+  // every tentacle reads from the same state — adding more tentacles costs
+  // basically nothing in animation budget.
+  const [mascotCenter, setMascotCenter] = useState<
+    { x: number; y: number } | null
+  >(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (reducedMotion || typeof window === "undefined") return;
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      const el = document.querySelector<HTMLElement>(
+        "[data-celebrate-anchor]",
+      );
+      if (el) {
+        const r = el.getBoundingClientRect();
+        if (r.width !== 0 || r.height !== 0) {
+          const nx = r.left + r.width / 2;
+          const ny = r.top + r.height / 2;
+          setMascotCenter((prev) => {
+            if (
+              prev &&
+              Math.abs(prev.x - nx) < 0.5 &&
+              Math.abs(prev.y - ny) < 0.5
+            ) {
+              return prev;
+            }
+            return { x: nx, y: ny };
+          });
+        }
+      }
+      rafRef.current = window.requestAnimationFrame(tick);
+    };
+    rafRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [reducedMotion]);
+
+  // Mood selection — level-up cranks the energy to "wiggling".
+  const mood: TentacleMood =
+    leveledUp || wiggleHarder ? "wiggling" : "celebrating";
+
+  // Compose the fleet. Top-corner tentacles only mount on perfect runs.
+  const fleet = useMemo<CelebrationTentacleDef[]>(() => {
+    return isPerfect
+      ? [...BASE_TENTACLES, ...PERFECT_TOP_TENTACLES]
+      : BASE_TENTACLES;
+  }, [isPerfect]);
+
+  // Path-conquered: override personality to "playful" for the whole fleet
+  // (extra celebratory energy across the board).
+  const effectiveFleet = useMemo(() => {
+    if (!pathConquered) return fleet;
+    return fleet.map((d) => ({ ...d, personality: "playful" as const }));
+  }, [fleet, pathConquered]);
+
+  return (
+    <>
+      {effectiveFleet.map((def, i) => (
+        <CelebrationTentacleMount
+          key={`${def.anchor}-${def.leftPct}-${def.topPct}-${i}`}
+          def={def}
+          mood={mood}
+          mascotCenter={mascotCenter}
+          reducedMotion={!!reducedMotion}
+        />
+      ))}
+    </>
+  );
+}
+
+interface CelebrationTentacleMountProps {
+  def: CelebrationTentacleDef;
+  mood: TentacleMood;
+  mascotCenter: { x: number; y: number } | null;
+  reducedMotion: boolean;
+}
+
+function CelebrationTentacleMount({
+  def,
+  mood,
+  mascotCenter,
+  reducedMotion,
+}: CelebrationTentacleMountProps) {
+  // Approximate this tentacle's base position in screen coords from its
+  // leftPct/topPct. Refresh on resize.
+  const [basePos, setBasePos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const compute = () =>
+      setBasePos({
+        x: (def.leftPct / 100) * window.innerWidth,
+        y: (def.topPct / 100) * window.innerHeight,
+      });
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [def.leftPct, def.topPct]);
+
+  // Personality-driven entrance spring.
+  const spring = useMemo(() => {
+    switch (def.personality) {
+      case "playful":
+        return { type: "spring" as const, stiffness: 220, damping: 14 };
+      case "wise":
+        return { type: "spring" as const, stiffness: 120, damping: 22 };
+      case "shy":
+        return { type: "spring" as const, stiffness: 160, damping: 22 };
+      case "curious":
+      default:
+        return { type: "spring" as const, stiffness: 180, damping: 18 };
+    }
+  }, [def.personality]);
+
+  const positionStyle: React.CSSProperties = {
+    left:
+      def.leftPct === 100
+        ? undefined
+        : def.leftPct === 0
+        ? 0
+        : `${def.leftPct}%`,
+    right: def.leftPct === 100 ? 0 : undefined,
+    top: def.topPct === 100 ? undefined : `${def.topPct}%`,
+    bottom: def.topPct === 100 ? 0 : undefined,
+    transform: def.outerTransform,
+  };
+
+  // Reduced-motion: target=null, no reachToTarget — render the tentacle in
+  // its rest pose so motion-sensitive users still see the decorative
+  // tentacles but without dynamic chasing motion.
+  const reachable = !reducedMotion && !!mascotCenter && !!basePos;
+  const target = reachable ? mascotCenter : null;
+
+  // Entrance: 200 + i * 120ms — staggered fade+scale-in.
+  const entranceDelay = 0.2 + def.staggerIdx * 0.12;
+
+  return (
+    <motion.div
+      aria-hidden
+      className={`pointer-events-none fixed z-[68] ${def.visibility ?? ""}`}
+      style={positionStyle}
+      initial={
+        reducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.6, y: 30 }
+      }
+      animate={
+        reducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }
+      }
+      transition={
+        reducedMotion
+          ? { duration: 0.15, delay: entranceDelay }
+          : { ...spring, delay: entranceDelay }
+      }
+    >
+      {/* Inner wrapper keeps the original "transformOrigin: 50% 100%" pivot
+          so the base stays glued to the edge. The Tentacle component itself
+          does the reach toward `target`. */}
+      <div
+        style={{
+          // For top-anchored tentacles we pivot from the top edge; bottom-
+          // anchored from the bottom edge (so the base remains glued).
+          transformOrigin:
+            def.anchor === "top" ? "50% 0%" : "50% 100%",
+        }}
+      >
+        <Tentacle
+          anchor={def.anchor}
+          length={def.length}
+          thickness={def.thickness}
+          curl={def.curl}
+          mood={mood}
+          personality={def.personality}
+          segments={def.segments ?? 4}
+          target={target}
+          basePosition={basePos ?? undefined}
+          reachToTarget={reachable}
+          showTipCursor={reachable}
+          maxStretch={2.2}
+        />
+      </div>
+    </motion.div>
   );
 }

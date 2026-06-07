@@ -4,16 +4,18 @@ import { Component, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { X, Flame, Heart, Zap, ShieldCheck } from "lucide-react";
+import { X, Flame, Heart, Zap, ShieldCheck, ShoppingBag } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
   useApp,
+  selectCoins,
   selectDailyProgress,
   selectStreakAtRisk,
 } from "@/lib/store";
 import { EmptyState, PathMap, PathTabs } from "@/components/path-map";
 import { PathTentacle, type PathTentacleEvent } from "@/components/path-map/PathTentacle";
 import { HUD as RealHUD } from "@/components/gamification";
+import { CoinIcon } from "@/components/gamification/CoinPill";
 
 /**
  * Defensive boundary around Agent 5's HUD: if the import or render fails for
@@ -47,8 +49,17 @@ function FallbackHUD() {
   const xp = useApp((s) => s.xp);
   const streak = useApp((s) => s.streak);
   const hearts = useApp((s) => s.hearts);
+  const coins = useApp(selectCoins);
   return (
     <div className="flex items-center gap-2">
+      <Link
+        href="/shop"
+        aria-label={`Coins: ${coins.toLocaleString()} — open shop`}
+        className="flex items-center gap-1 rounded-full border-2 border-xp/40 bg-xp/15 px-2.5 py-1 text-xs font-extrabold text-ink shadow-pop-soft"
+      >
+        <CoinIcon size={14} />
+        <span className="tabular-nums">{coins.toLocaleString()}</span>
+      </Link>
       <span className="flex items-center gap-1 rounded-full border-2 border-border bg-surface px-2.5 py-1 text-xs font-extrabold text-ink shadow-pop-soft">
         <Zap className="h-3.5 w-3.5 text-xp" strokeWidth={3} fill="currentColor" />
         <span className="tabular-nums">{xp}</span>
@@ -129,18 +140,58 @@ export default function LearnPage() {
     return next?.id ?? null;
   }, [course, activePath, completedEpisodes]);
 
+  // The currently-active (first uncompleted) episode of the active path. This
+  // is the DOM target the left tentacle bends toward.
+  const nextUncompletedEpisode = useMemo(() => {
+    if (!activePath) return null;
+    return (
+      activePath.episodes.find((ep) => !completedEpisodes[ep.id]) ?? null
+    );
+  }, [activePath, completedEpisodes]);
+
+  // Selector handed to PathTentacle so it can poll the active node's rect.
+  const activeEpisodeSelector = useMemo(
+    () =>
+      nextUncompletedEpisode
+        ? `[data-episode-id="${nextUncompletedEpisode.id}"]`
+        : null,
+    [nextUncompletedEpisode],
+  );
+
+  // === Mobile / desktop boundary =============================================
+  // Below this breakpoint we mount ONE bottom tentacle (and it's the speaker);
+  // at/above it we mount the left (speaker) + right (silent companion). The
+  // boundary mirrors Tailwind's `md` (768px) — wide enough to be a meaningful
+  // tablet, narrow enough that phones stay phone-only.
+  const MOBILE_MAX_PX = 767;
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window === "undefined" ? false : window.innerWidth <= MOBILE_MAX_PX,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia(`(max-width: ${MOBILE_MAX_PX}px)`);
+    const onChange = () => setIsMobile(mql.matches);
+    onChange();
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
   // === Tentacle event state machine ==========================================
-  // Two tentacles (left + right) driven by `PathTentacleEvent`. Each event
-  // is timestamped so the PathTentacle's auto-dismiss timer retriggers when
-  // the same event type is sent twice in a row (e.g. two consecutive welcomes).
-  const [leftEvent, setLeftEvent] = useState<PathTentacleEvent>({
+  // The SPEAKER tentacle owns its own event channel. The silent companion has
+  // a parallel channel used only for subtle bodily reactions (mood / wiggle).
+  // On mobile, the bottom tentacle is the speaker; on desktop+, left is the
+  // speaker and right is the silent companion.
+  //
+  // Each event is timestamped so the PathTentacle's auto-dismiss timer
+  // retriggers when the same event type is sent twice in a row.
+  const [speakerEvent, setSpeakerEvent] = useState<PathTentacleEvent>({
     type: "idle",
   });
-  const [leftTs, setLeftTs] = useState<number>(0);
-  const [rightEvent, setRightEvent] = useState<PathTentacleEvent>({
+  const [speakerTs, setSpeakerTs] = useState<number>(0);
+  const [companionEvent, setCompanionEvent] = useState<PathTentacleEvent>({
     type: "idle",
   });
-  const [rightTs, setRightTs] = useState<number>(0);
+  const [companionTs, setCompanionTs] = useState<number>(0);
 
   // Track the last user interaction (any click/scroll/keypress) so we can
   // fire the "Try this one ↓" idle prompt after >8s of inactivity. Stored
@@ -149,41 +200,111 @@ export default function LearnPage() {
   // Welcomed-paths set lives in a ref so a re-render doesn't reset it.
   const welcomedPathsRef = useRef<Set<string>>(new Set());
 
+  // === Tab-change quiet window ==============================================
+  // After the user taps a PathTabs entry, mute the tentacles for ~1.2s so
+  // they don't compete for attention during the slide-in animation.
+  const [tabsMuted, setTabsMuted] = useState(false);
+  const tabsMuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const muteTentaclesForTabChange = () => {
+    setTabsMuted(true);
+    if (tabsMuteTimerRef.current) clearTimeout(tabsMuteTimerRef.current);
+    tabsMuteTimerRef.current = setTimeout(() => setTabsMuted(false), 1200);
+  };
+  useEffect(() => {
+    return () => {
+      if (tabsMuteTimerRef.current) clearTimeout(tabsMuteTimerRef.current);
+    };
+  }, []);
+
+  // === Active-node viewport position ========================================
+  // Drives the left tentacle's `baseTopPct` so it naturally follows the
+  // user's focus as they scroll. We sample the active episode's bounding
+  // rect on scroll/resize, throttled via rAF. State updates only when the
+  // percentage moves >=1.5pp to avoid spurious rerenders.
+  const [activeNodeTopPct, setActiveNodeTopPct] = useState<number>(44);
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+    if (!activeEpisodeSelector) return;
+    let raf = 0;
+    let lastPub = 44;
+    const measure = () => {
+      const el = document.querySelector(activeEpisodeSelector);
+      if (!el || typeof window === "undefined") return;
+      const r = (el as HTMLElement).getBoundingClientRect();
+      const midY = r.top + r.height / 2;
+      const vh = window.innerHeight || 1;
+      // Clamp to a comfortable on-screen band so the tentacle never sits
+      // pinned at the very top/bottom — keeps it usable as a soft pointer.
+      const pct = Math.max(18, Math.min(78, (midY / vh) * 100));
+      if (Math.abs(pct - lastPub) >= 1.5) {
+        lastPub = pct;
+        setActiveNodeTopPct(pct);
+      }
+    };
+    const tick = () => {
+      raf = requestAnimationFrame(() => {
+        measure();
+      });
+    };
+    measure();
+    window.addEventListener("scroll", tick, { passive: true });
+    window.addEventListener("resize", tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", tick);
+      window.removeEventListener("resize", tick);
+    };
+  }, [activeEpisodeSelector, prefersReducedMotion]);
+
   // 1) Welcome bubble when activePathId changes — once per session per path.
+  //    Only the SPEAKER pops the welcome (single-speaker invariant). The
+  //    silent companion gets a non-speaking "ripple" cue at the same time.
   useEffect(() => {
     if (!activePath) return;
     if (prefersReducedMotion) return;
-    if (welcomedPathsRef.current.has(activePath.id)) return;
-    welcomedPathsRef.current.add(activePath.id);
-    // Right tentacle pops the welcome.
-    setRightEvent({
-      type: "react",
-      message: `Welcome to ${activePath.title}!`,
-      durationMs: 3200,
-    });
-    setRightTs(Date.now());
+    const isFirstVisit = !welcomedPathsRef.current.has(activePath.id);
+    if (isFirstVisit) {
+      welcomedPathsRef.current.add(activePath.id);
+      setSpeakerEvent({
+        type: "react",
+        message: `Welcome to ${activePath.title}!`,
+        durationMs: 3200,
+      });
+      setSpeakerTs(Date.now());
+    }
+    // Silent companion: every path change → small wiggle ripple (no bubble).
+    setCompanionEvent({ type: "reach" });
+    setCompanionTs(Date.now());
+    // Settle the companion back to idle shortly after so it doesn't lock
+    // into a permanent reach.
+    const t = setTimeout(() => {
+      setCompanionEvent({ type: "idle" });
+      setCompanionTs(Date.now());
+    }, 900);
+    return () => clearTimeout(t);
   }, [activePath, prefersReducedMotion]);
 
-  // 2) Celebrate on path completion. Drive BOTH tentacles for max joy.
+  // 2) Celebrate on path completion. Speaker pops the message; companion
+  //    celebrates bodily WITHOUT a bubble (single-speaker rule).
   useEffect(() => {
     if (prefersReducedMotion) return;
     if (!activePathComplete) return;
-    setLeftEvent({
+    setSpeakerEvent({
       type: "celebrate",
-      message: "Path conquered! 🎉",
+      message: "Path conquered!",
       durationMs: 4000,
     });
-    setLeftTs(Date.now());
-    setRightEvent({
+    setSpeakerTs(Date.now());
+    // Companion: celebrate animation only (bubble is suppressed via silent prop).
+    setCompanionEvent({
       type: "celebrate",
-      message: "Next path?",
       durationMs: 4000,
     });
-    setRightTs(Date.now());
+    setCompanionTs(Date.now());
   }, [activePathComplete, prefersReducedMotion]);
 
   // 3) Idle nudge — after 8s of no interaction AND the active path isn't done
-  //    yet, the left tentacle whispers "Try this one ↓".
+  //    yet, the SPEAKER tentacle whispers "Try this one ↓".
   useEffect(() => {
     if (prefersReducedMotion) return;
     if (!activePath || activePathComplete) return;
@@ -196,12 +317,12 @@ export default function LearnPage() {
     const interval = setInterval(() => {
       const idleMs = Date.now() - lastInteractionRef.current;
       if (idleMs > 8000) {
-        setLeftEvent({
+        setSpeakerEvent({
           type: "react",
           message: "Try this one ↓",
           durationMs: 3000,
         });
-        setLeftTs(Date.now());
+        setSpeakerTs(Date.now());
         // Reset the timer so we don't spam — next nudge ~8s after this one.
         lastInteractionRef.current = Date.now();
       }
@@ -214,66 +335,43 @@ export default function LearnPage() {
     };
   }, [activePath, activePathComplete, prefersReducedMotion]);
 
-  // 3b) Locked-tap reaction — EpisodeNode now dispatches a custom event when
-  //     the user taps a locked node. Pop a helpful bubble.
+  // 3b) Locked-tap reaction — EpisodeNode dispatches a custom event when
+  //     the user taps a locked node. SPEAKER pops the helpful bubble.
   useEffect(() => {
     if (prefersReducedMotion) return;
     const handler = () => {
-      setLeftEvent({
+      setSpeakerEvent({
         type: "react",
-        message: "Finish the one before first 🔒",
+        message: "Finish the one before first",
         durationMs: 2800,
       });
-      setLeftTs(Date.now());
+      setSpeakerTs(Date.now());
     };
     window.addEventListener("pathlearn:locked-tap", handler);
     return () => window.removeEventListener("pathlearn:locked-tap", handler);
   }, [prefersReducedMotion]);
 
-  // 4) "Reach toward the active episode" — find the first uncompleted episode
-  //    node on screen and pass its y-coordinate to the left tentacle so it
-  //    bends in that direction. We only update when no transient event (react /
-  //    celebrate) is active, so reactions take precedence over the gesture.
+  // 3c) Silent companion: small wave on user scroll. We debounce so it doesn't
+  //     spam during long scroll gestures — only fire if there hasn't been a
+  //     companion event in the last ~700ms.
   useEffect(() => {
     if (prefersReducedMotion) return;
-    if (!activePath) return;
-    if (leftEvent.type !== "idle" && leftEvent.type !== "reach") return;
-
-    const targetEpisode = activePath.episodes.find(
-      (ep) => !completedEpisodes[ep.id],
-    );
-    if (!targetEpisode) return;
-
-    // Find the rendered node via its DOM id (PathMap renders episodes with
-    // sequential anchors); fall back to a best-effort selector. If we can't
-    // find it, leave the tentacle idle rather than guessing.
-    let raf = 0;
-    const measure = () => {
-      const el =
-        document.querySelector(`[data-episode-id="${targetEpisode.id}"]`) ||
-        document.querySelector(".scroll-mt-\\[140px\\]");
-      if (el) {
-        const rect = (el as HTMLElement).getBoundingClientRect();
-        setLeftEvent({ type: "reach", targetY: rect.top + rect.height / 2 });
-        setLeftTs(Date.now());
-      }
-    };
-    raf = window.requestAnimationFrame(measure);
+    let lastFire = 0;
     const onScroll = () => {
-      window.cancelAnimationFrame(raf);
-      raf = window.requestAnimationFrame(measure);
+      const now = Date.now();
+      if (now - lastFire < 700) return;
+      lastFire = now;
+      setCompanionEvent({ type: "reach" });
+      setCompanionTs(now);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      window.cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-    // Intentionally omit leftEvent.type from deps to avoid resubscribing on
-    // every reach-event update; we re-read it via the guard above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePath, completedEpisodes, prefersReducedMotion]);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [prefersReducedMotion]);
+
+  // 4) Reach toward the active episode is now owned by <PathTentacle />
+  //    itself: we hand it a `targetSelector` and it polls the DOM rect per
+  //    animation frame, curling the tip toward the live target. No effect
+  //    needed here — the wiring is in the JSX below.
 
   if (!course) {
     return <EmptyState />;
@@ -316,40 +414,65 @@ export default function LearnPage() {
         className="dot-grid-bg pointer-events-none fixed inset-0 -z-10 opacity-60"
       />
 
-      {/* Peeking tentacles — proactive teammates that bend toward the active
-          episode, celebrate path completion, and pop helpful speech bubbles. */}
-      <PathTentacle
-        anchor="left"
-        baseTopPct={44}
-        length={160}
-        thickness={56}
-        curl="in"
-        event={leftEvent}
-        eventTimestamp={leftTs}
-        className="pointer-events-none fixed z-0 hidden lg:block"
-      />
-      <PathTentacle
-        anchor="right"
-        baseTopPct={72}
-        length={130}
-        thickness={48}
-        curl="out"
-        event={rightEvent}
-        eventTimestamp={rightTs}
-        className="pointer-events-none fixed z-0 hidden lg:block"
-      />
-      {/* Mobile companion — compact tentacle pinned to the bottom-left so
-          mobile users still get the proactive nudges + speech bubbles. */}
-      <PathTentacle
-        anchor="left"
-        length={90}
-        thickness={32}
-        curl="in"
-        event={leftEvent}
-        eventTimestamp={leftTs}
-        className="pointer-events-none fixed z-0 lg:hidden"
-        style={{ top: "auto", bottom: "5rem" }}
-      />
+      {/* Peeking tentacles — proactive teammates that physically reach toward
+          the active episode circle, celebrate path completion, and pop
+          helpful speech bubbles.
+
+          Speaker/companion split (god-level):
+            • DESKTOP/TABLET (≥768px): LEFT is the speaker (wise, curl in),
+              RIGHT is the silent visual companion (playful, curl out).
+              The LEFT tentacle's base drifts vertically to follow the active
+              node so it reads as a soft pointer wherever the user scrolled.
+            • MOBILE (≤767px): a single BOTTOM tentacle becomes the speaker
+              (curious, curl in). Left + right are hidden.
+
+          Only the speaker shows speech bubbles. The silent companion still
+          reacts bodily (scroll wave, path-change ripple, celebrate). */}
+      {!isMobile && (
+        <>
+          <PathTentacle
+            anchor="left"
+            baseTopPct={activeNodeTopPct}
+            curl="in"
+            event={speakerEvent}
+            eventTimestamp={speakerTs}
+            targetSelector={activeEpisodeSelector}
+            personality="wise"
+            muted={tabsMuted}
+            silent={false}
+            className="pointer-events-none fixed z-0 tentacle-hide-short-landscape"
+          />
+          <PathTentacle
+            anchor="right"
+            baseTopPct={72}
+            curl="out"
+            event={companionEvent}
+            eventTimestamp={companionTs}
+            targetSelector={null}
+            personality="playful"
+            muted={tabsMuted}
+            silent={true}
+            className="pointer-events-none fixed z-0 tentacle-hide-short-landscape"
+          />
+        </>
+      )}
+      {isMobile && (
+        /* Mobile speaker — compact tentacle pinned to the bottom-left.
+           Gets the active-node target so the tip points up-right toward the
+           current episode, and owns the bubble channel for mobile users. */
+        <PathTentacle
+          anchor="left"
+          curl="in"
+          event={speakerEvent}
+          eventTimestamp={speakerTs}
+          targetSelector={activeEpisodeSelector}
+          personality="curious"
+          muted={tabsMuted}
+          silent={false}
+          className="pointer-events-none fixed z-0 tentacle-hide-short-landscape"
+          style={{ top: "auto", bottom: "5rem" }}
+        />
+      )}
 
       {/* Sticky header */}
       <header className="compact-landscape-header sticky top-0 z-40 border-b border-border bg-bg/95 backdrop-blur supports-[backdrop-filter]:bg-bg/80">
@@ -376,7 +499,7 @@ export default function LearnPage() {
           <div className="flex shrink-0 items-center gap-2">
             {streakShields > 0 && (
               <span
-                className="flex items-center gap-1 rounded-full border-2 border-border bg-surface px-2 py-1 text-[11px] font-extrabold text-ink shadow-pop-soft"
+                className="hidden items-center gap-1 rounded-full border-2 border-border bg-surface px-2 py-1 text-[11px] font-extrabold text-ink shadow-pop-soft sm:flex"
                 title={`${streakShields} streak shield${
                   streakShields === 1 ? "" : "s"
                 }`}
@@ -399,6 +522,14 @@ export default function LearnPage() {
                 </span>
               </span>
             )}
+            <Link
+              href="/shop"
+              aria-label="Open shop"
+              title="Shop"
+              className="tap-target shrink-0 rounded-full border-2 border-border bg-surface text-ink-muted shadow-pop-soft transition-colors hover:text-primary"
+            >
+              <ShoppingBag className="h-4 w-4" strokeWidth={3} />
+            </Link>
             <HUD />
           </div>
         </div>
@@ -411,6 +542,9 @@ export default function LearnPage() {
             progressByPathId={progressByPathId}
             onSelect={(id) => {
               setActivePathId(id);
+              // Mute tentacles briefly so they don't compete with the
+              // tab-change animation.
+              muteTentaclesForTabChange();
               // Scroll to top of the map so the new path's start is visible.
               if (typeof window !== "undefined") {
                 window.scrollTo({ top: 0, behavior: "smooth" });

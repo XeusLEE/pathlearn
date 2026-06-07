@@ -167,7 +167,7 @@ export function Matching({
         {question.prompt}
       </h3>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3" data-quiz-options="matching">
         {/* Left column (canonical order) */}
         <div className="flex flex-col gap-2">
           {question.pairs.map((p, i) => {
@@ -196,6 +196,8 @@ export function Matching({
                 disabled={locked || submitted}
                 onClick={() => handleLeft(i)}
                 className={classes}
+                data-quiz-match-left={i}
+                data-correct-match={i}
               >
                 <span className="flex-1 leading-snug">{p.left}</span>
                 {num !== null ? (
@@ -258,6 +260,8 @@ export function Matching({
                 disabled={locked || submitted}
                 onClick={() => handleRight(j)}
                 className={classes}
+                data-quiz-match-right={j}
+                data-quiz-match-right-origin={r.originalIndex}
               >
                 <span className="flex-1 leading-snug">{r.text}</span>
                 {num !== null ? (

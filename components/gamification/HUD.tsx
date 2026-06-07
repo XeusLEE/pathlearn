@@ -10,6 +10,7 @@
 // =============================================================
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Flame, Heart, Plus } from "lucide-react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
@@ -19,11 +20,12 @@ import {
 } from "@/lib/store";
 import { DailyGoalRing } from "./DailyGoalRing";
 import { ToastHost } from "./AchievementToast";
+import { CoinPill } from "./CoinPill";
 
 export interface HUDProps {
   className?: string;
   /** Hide individual pills if not relevant. */
-  show?: { streak?: boolean; xp?: boolean; hearts?: boolean };
+  show?: { streak?: boolean; xp?: boolean; hearts?: boolean; coins?: boolean };
 }
 
 // Module-level guard: render exactly one ToastHost regardless of
@@ -120,6 +122,7 @@ export function HUD({ className, show }: HUDProps) {
   const atRisk = useApp(selectStreakAtRisk);
 
   const renderToastHost = useToastHostSingleton();
+  const router = useRouter();
 
   // Hearts countdown — tick every second when refill is pending.
   const [now, setNow] = useState(() => Date.now());
@@ -155,6 +158,7 @@ export function HUD({ className, show }: HUDProps) {
   const showStreak = show?.streak !== false;
   const showXp = show?.xp !== false;
   const showHearts = show?.hearts !== false;
+  const showCoins = show?.coins !== false;
 
   return (
     <div
@@ -162,8 +166,12 @@ export function HUD({ className, show }: HUDProps) {
       role="group"
       aria-label="Player stats"
     >
+      {showCoins && (
+        <CoinPill onClick={() => router.push("/shop")} />
+      )}
+
       {showStreak && (
-        <div className="relative" ref={streakRef}>
+        <div className="relative hidden sm:block" ref={streakRef}>
           <PillButton
             label={`Streak: ${streak} days${
               streakShields > 0 ? `, ${streakShields} shield(s)` : ""
@@ -231,7 +239,11 @@ export function HUD({ className, show }: HUDProps) {
         </div>
       )}
 
-      {showXp && <DailyGoalRing />}
+      {showXp && (
+        <span className="hidden sm:inline-flex">
+          <DailyGoalRing />
+        </span>
+      )}
 
       {showHearts && (
         <div className="relative" ref={heartsRef}>
@@ -247,7 +259,7 @@ export function HUD({ className, show }: HUDProps) {
             />
             <span className="tabular-nums">{hearts}</span>
             {hearts < MAX_HEARTS && refillRemaining > 0 && (
-              <span className="ml-1 text-[10px] tabular-nums opacity-80 font-bold">
+              <span className="ml-1 hidden text-[10px] tabular-nums opacity-80 font-bold sm:inline">
                 {formatCountdown(refillRemaining)}
               </span>
             )}

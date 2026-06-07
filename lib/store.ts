@@ -7,12 +7,37 @@ import type {
   AchievementInfo,
   Course,
   EpisodeResult,
+  EquippedCosmetics,
   ProgressState,
 } from "./types";
+import { getCosmetic, COSMETICS } from "./cosmetics";
 
 const MAX_HEARTS = 5;
 const HEART_REFILL_MS = 30 * 60 * 1000;
 const DAILY_GOAL_DEFAULT = 30;
+/** Coins granted to brand-new players so the shop feels reachable immediately. */
+const STARTING_COINS = 120;
+
+// ----------------------------------------------------------------------------
+// DEMO UNLOCK — the deployed prototype ships with every cosmetic already owned
+// and a generous coin balance, so visitors can play dress-up immediately
+// without grinding. Flip DEMO_UNLOCK_ALL to false to restore the earn-it
+// economy (default owned = just the free skin, start with STARTING_COINS).
+// ----------------------------------------------------------------------------
+const DEMO_UNLOCK_ALL = true;
+const ALL_COSMETIC_IDS = COSMETICS.map((c) => c.id);
+const DEMO_COINS = 99999;
+
+const defaultOwned = () =>
+  DEMO_UNLOCK_ALL ? [...ALL_COSMETIC_IDS] : ["skin_default"];
+const defaultCoins = () => (DEMO_UNLOCK_ALL ? DEMO_COINS : STARTING_COINS);
+
+const DEFAULT_EQUIPPED: EquippedCosmetics = {
+  hat: null,
+  skin: "skin_default",
+  trail: null,
+  aura: null,
+};
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const yesterdayISO = () =>
@@ -20,6 +45,8 @@ const yesterdayISO = () =>
 
 interface AppState extends ProgressState {
   course: Course | null;
+  /** True once the persisted state has rehydrated from localStorage. */
+  hasHydrated: boolean;
 
   /**
    * Set the active course. If the new course id differs from the current one,
@@ -44,7 +71,25 @@ interface AppState extends ProgressState {
   refillAllHearts: () => void;
 
   setDailyGoal: (n: number) => void;
+
+  // -------- Coins & cosmetics --------
+  /** Add coins to the balance (e.g. live combo rewards). Clamped at >= 0. */
+  earnCoins: (amount: number) => void;
+  /** Attempt a purchase. Validates catalog, ownership, and balance. */
+  buyCosmetic: (id: string) => BuyResult;
+  /** Equip an owned cosmetic into its slot. No-op if not owned/unknown. */
+  equipCosmetic: (id: string) => void;
+  /** Clear a slot. Skin falls back to the default skin (never empty). */
+  unequipSlot: (slot: keyof EquippedCosmetics) => void;
+
   resetAll: () => void;
+}
+
+export interface BuyResult {
+  ok: boolean;
+  reason?: "owned" | "insufficient" | "unknown";
+  /** Coin balance after the attempt. */
+  balance: number;
 }
 
 export interface EpisodeCompletionResult {
@@ -61,6 +106,8 @@ export interface EpisodeCompletionResult {
   wasReplay: boolean;
   /** True if this attempt strictly improved on the previous best. */
   isPersonalBest: boolean;
+  /** Coins earned from this episode completion (separate from live combos). */
+  coinsAwarded: number;
 }
 
 export const useApp = create<AppState>()(
@@ -79,6 +126,10 @@ export const useApp = create<AppState>()(
       streakShields: 0,
       lastShieldGrantedDate: "",
       earnedAchievements: [],
+      coins: defaultCoins(),
+      ownedCosmetics: defaultOwned(),
+      equipped: DEFAULT_EQUIPPED,
+      hasHydrated: false,
 
       setCourse: (course) =>
         set((s) => {
@@ -200,6 +251,19 @@ export const useApp = create<AppState>()(
             )
           : state.earnedAchievements;
 
+        // Coins: episode + accuracy on first clear, smaller on improvement,
+        // plus perfect / achievement / daily-goal bonuses. Live in-quiz combo
+        // coins are awarded separately via earnCoins() from the quiz player.
+        let coinsAwarded = 0;
+        if (isFirstClear) {
+          coinsAwarded += 10 + Math.round((score / 100) * 10);
+          if (score >= 100) coinsAwarded += 10; // perfect bonus
+        } else if (isImprovement) {
+          coinsAwarded += 5;
+        }
+        coinsAwarded += achievementsUnlocked.length * 20;
+        if (hitDailyGoal) coinsAwarded += 25;
+
         set({
           completedEpisodes: newCompleted,
           xp: newXp,
@@ -210,6 +274,7 @@ export const useApp = create<AppState>()(
           streakShields: newShields,
           lastShieldGrantedDate: newShieldDate,
           earnedAchievements: newEarned,
+          coins: state.coins + coinsAwarded,
         });
 
         return {
@@ -223,6 +288,7 @@ export const useApp = create<AppState>()(
           hitDailyGoal,
           wasReplay,
           isPersonalBest,
+          coinsAwarded,
         };
       },
 
@@ -251,6 +317,45 @@ export const useApp = create<AppState>()(
       setDailyGoal: (n) =>
         set({ dailyGoal: Math.max(10, Math.min(200, Math.round(n))) }),
 
+      // -------- Coins & cosmetics --------
+      earnCoins: (amount) =>
+        set((s) => ({ coins: Math.max(0, s.coins + Math.round(amount)) })),
+
+      buyCosmetic: (id) => {
+        const state = get();
+        const item = getCosmetic(id);
+        if (!item) {
+          return { ok: false, reason: "unknown", balance: state.coins };
+        }
+        if (state.ownedCosmetics.includes(id)) {
+          return { ok: false, reason: "owned", balance: state.coins };
+        }
+        if (state.coins < item.price) {
+          return { ok: false, reason: "insufficient", balance: state.coins };
+        }
+        const balance = state.coins - item.price;
+        set({
+          coins: balance,
+          ownedCosmetics: [...state.ownedCosmetics, id],
+        });
+        return { ok: true, balance };
+      },
+
+      equipCosmetic: (id) =>
+        set((s) => {
+          const item = getCosmetic(id);
+          if (!item || !s.ownedCosmetics.includes(id)) return s;
+          return { equipped: { ...s.equipped, [item.slot]: id } };
+        }),
+
+      unequipSlot: (slot) =>
+        set((s) => ({
+          equipped: {
+            ...s.equipped,
+            [slot]: slot === "skin" ? "skin_default" : null,
+          },
+        })),
+
       resetAll: () =>
         set({
           course: null,
@@ -266,15 +371,32 @@ export const useApp = create<AppState>()(
           streakShields: 0,
           lastShieldGrantedDate: "",
           earnedAchievements: [],
+          coins: defaultCoins(),
+          ownedCosmetics: defaultOwned(),
+          equipped: DEFAULT_EQUIPPED,
         }),
     }),
     {
-      name: "pathlearn-state-v2",
+      name: "pathlearn-state-v3",
       storage: createJSONStorage(() => localStorage),
-      // Migrate v1 → v2: add new fields with defaults so old users don't crash.
-      version: 2,
+      // Migrate older persisted state: fill any missing field with a default so
+      // returning players don't crash. v4 also force-grants the full cosmetics
+      // catalog when DEMO_UNLOCK_ALL is on, so every returning visitor lands on
+      // the deployed "everything unlocked" state.
+      version: 4,
       migrate: (persisted: unknown, _version) => {
         const state = (persisted ?? {}) as Partial<AppState>;
+        const persistedOwned = state.ownedCosmetics ?? ["skin_default"];
+        // Demo unlock: own everything; otherwise just ensure the free skin.
+        const owned = DEMO_UNLOCK_ALL
+          ? [...ALL_COSMETIC_IDS]
+          : persistedOwned.includes("skin_default")
+          ? persistedOwned
+          : ["skin_default", ...persistedOwned];
+        const migratedCoins =
+          Number.isFinite(state.coins) && (state.coins as number) >= 0
+            ? (state.coins as number)
+            : STARTING_COINS;
         return {
           course: state.course ?? null,
           completedEpisodes: state.completedEpisodes ?? {},
@@ -289,7 +411,18 @@ export const useApp = create<AppState>()(
           streakShields: state.streakShields ?? 0,
           lastShieldGrantedDate: state.lastShieldGrantedDate ?? "",
           earnedAchievements: state.earnedAchievements ?? [],
+          coins: DEMO_UNLOCK_ALL
+            ? Math.max(migratedCoins, DEMO_COINS)
+            : migratedCoins,
+          ownedCosmetics: owned,
+          equipped: state.equipped ?? DEFAULT_EQUIPPED,
         } as AppState;
+      },
+      onRehydrateStorage: () => (state) => {
+        // Flag hydration so coin/cosmetic UI can avoid flashing in-memory
+        // defaults before localStorage is read.
+        useApp.setState({ hasHydrated: true });
+        void state;
       },
     }
   )
@@ -337,6 +470,22 @@ export const selectStreakAtRisk = (s: AppState) => {
   const ystd = yesterdayISO();
   return s.streak > 0 && s.lastStudyDate === ystd && s.lastXpDate !== td;
 };
+
+// -------- Coins & cosmetics selectors --------
+
+export const selectCoins = (s: AppState) => s.coins;
+
+export const selectHasHydrated = (s: AppState) => s.hasHydrated;
+
+/** Equipped cosmetic ids per slot. Stable reference until equip changes. */
+export const selectEquipped = (s: AppState) => s.equipped;
+
+/** Owned cosmetic ids. */
+export const selectOwned = (s: AppState) => s.ownedCosmetics;
+
+/** Curried ownership check: `useApp(selectOwns(id))`. */
+export const selectOwns = (id: string) => (s: AppState) =>
+  s.ownedCosmetics.includes(id);
 
 // ============================================================================
 // Achievements
@@ -480,4 +629,4 @@ function detectNewAchievements(
   return out;
 }
 
-export { MAX_HEARTS, HEART_REFILL_MS, DAILY_GOAL_DEFAULT };
+export { MAX_HEARTS, HEART_REFILL_MS, DAILY_GOAL_DEFAULT, STARTING_COINS };

@@ -81,6 +81,10 @@ export function TrueFalse({
         onClick={() => handlePick(val)}
         whileTap={locked ? undefined : { scale: 0.97 }}
         className={classes}
+        data-quiz-option={val ? "1" : "0"}
+        data-quiz-option-text={val ? "True" : "False"}
+        data-correct={String(question.correct === val)}
+        data-selected={String(picked === val)}
         style={style}
       >
         {val ? (
@@ -102,7 +106,7 @@ export function TrueFalse({
         {question.prompt}
       </h3>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4" data-quiz-options="true_false">
         {renderButton(true)}
         {renderButton(false)}
       </div>

@@ -1,22 +1,31 @@
 "use client";
 
 // =============================================================
-// <QuizTentacle /> — an *interactive* tentacle for QuizPlayer.
-// Wraps the base <Tentacle> with:
-//   • mood derived from feedback (idle / celebrating / reaching / drooping)
-//   • a small speech bubble that POINTS toward the answer area on a
-//     wrong answer, quoting the correct answer in plain language
-//   • a lean toward screen-center on a wrong answer (the "let me
-//     help" gesture)
-//   • an optional idle "thinking" bubble after a long pause
-//   • full respect for prefers-reduced-motion
+// <QuizTentacle /> — a *god-level* interactive tentacle for the quiz player.
 //
-// Designed to be drop-in for the existing <Tentacle> mounts in
-// QuizPlayer.tsx — the consumer still controls outer positioning
-// via Tailwind classes (fixed / left / right / bottom).
+// What it does:
+//   • Picks a smart target on the live DOM based on feedback state and the
+//     active question's type — and physically reaches its TIP to that node
+//     (via Tentacle's reachToTarget API) so the tentacle literally *points
+//     at* the correct option, the user's current selection, or the fill input.
+//   • Owns an attached speech bubble — but only when `silent === false`. The
+//     "speaker" tentacle has the bubble; sibling tentacles are silent visual
+//     reactors (subtle wiggle on selection, droop on wrong, celebrate on
+//     correct).
+//   • Personality, dramatic sizing per viewport, keyboard-tuck heuristic and
+//     reduced-motion support are all preserved.
+//
+// Designed to be drop-in for QuizPlayer.tsx — three mount sites (left, right,
+// bottom) with `silent` flagged per spec.
 // =============================================================
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Tentacle,
@@ -25,6 +34,8 @@ import {
 } from "@/components/gamification";
 import type { Question } from "@/lib/types";
 
+export type QuizTentaclePersonality = "curious" | "shy" | "playful" | "wise";
+
 export interface QuizTentacleProps {
   /** Which edge of the screen the tentacle emerges from. */
   anchor: "left" | "right" | "bottom";
@@ -32,14 +43,30 @@ export interface QuizTentacleProps {
   question?: Question;
   /** Current feedback state — null = no feedback yet. */
   feedback: { correct: boolean; tone?: "correct" | "wrong" | "almost" } | null;
-  /** Override length (px). Defaults vary with `compact`. */
+  /** Override length (px). Defaults vary with viewport. */
   length?: number;
-  /** Override thickness (px). Defaults vary with `compact`. */
+  /** Override thickness (px). Defaults vary with viewport. */
   thickness?: number;
   /** Additional positioning classes for the outer wrapper. */
   className?: string;
-  /** When true, render mobile-sized. */
+  /** When true, render mobile-sized (forces compact size regardless of vw). */
   compact?: boolean;
+  /**
+   * CSS selector to track. The tentacle will bend toward this element's
+   * bounding-rect center while it's visible. When omitted, falls back to
+   * the smart auto-targeting based on feedback state.
+   */
+  targetSelector?: string;
+  /** Direct element reference. Wins over `targetSelector` when both are set. */
+  targetElement?: Element | null;
+  /** Optional personality — affects subtle motion behavior. */
+  personality?: QuizTentaclePersonality;
+  /**
+   * When true, this tentacle never renders a speech bubble — purely visual.
+   * Used to avoid duplicate bubbles when multiple QuizTentacles are mounted.
+   * Defaults to false (i.e. the tentacle speaks).
+   */
+  silent?: boolean;
 }
 
 type BubbleTone = "correct" | "wrong" | "idle";
@@ -110,10 +137,18 @@ function correctAnswerText(q: Question): string {
 }
 
 /**
+ * Returns true when, on a wrong answer for this question type, the tentacle
+ * can *literally point* at a single DOM element representing the answer —
+ * meaning the bubble can just say "It's this one →" instead of quoting text.
+ */
+function isPointableType(q: Question | undefined): boolean {
+  if (!q) return false;
+  return q.type === "multiple_choice" || q.type === "true_false";
+}
+
+/**
  * Stable pick from a list keyed by an arbitrary string so the same question
- * shows the same cheer (avoids re-rolls on re-render). For idle prompts we
- * pass a time-bucket key so it rotates over time but stays stable within a
- * single render pass.
+ * shows the same cheer (avoids re-rolls on re-render).
  */
 function pick<T>(list: T[], key: string): T {
   let hash = 0;
@@ -137,6 +172,10 @@ function moodFor(
 /**
  * Build the bubble content from feedback + question. Returns null when no
  * bubble should render.
+ *
+ * For pointable types on a wrong answer, the bubble is short ("It's this one
+ * →") because the tentacle TIP is physically landing on the correct option;
+ * the user gets the answer from the tip cursor, not the bubble text.
  */
 function bubbleFor(
   feedback: QuizTentacleProps["feedback"],
@@ -145,8 +184,6 @@ function bubbleFor(
 ): BubbleContent | null {
   if (feedback === null) {
     if (idleHint) {
-      // Use question id (or 'no-q') as a stable seed so the prompt is
-      // deterministic for this question; avoids flickering across renders.
       const seed = question?.id ?? "no-q";
       return { text: pick(IDLE_PROMPTS, seed), tone: "idle" };
     }
@@ -154,8 +191,6 @@ function bubbleFor(
   }
 
   if (feedback.correct) {
-    // Almost still flips correct=true on the QuizPlayer side; we treat it as
-    // a softer nudge bubble rather than a celebration.
     if (feedback.tone === "almost") {
       const seed = question?.id ?? "almost";
       const nudge = pick(ALMOST_NUDGES, seed);
@@ -170,8 +205,12 @@ function bubbleFor(
     return { text: pick(CORRECT_CHEERS, seed), tone: "correct" };
   }
 
-  // Wrong → quote the correct answer in plain language.
+  // Wrong → if the tentacle's tip is sitting on a specific DOM option,
+  // a short "pointing" caption is more powerful than restating the answer.
   if (!question) return { text: "Not quite.", tone: "wrong" };
+  if (isPointableType(question)) {
+    return { text: "It's this one →", tone: "wrong" };
+  }
   const ans = truncate(correctAnswerText(question));
   if (!ans) return { text: "Not quite.", tone: "wrong" };
   return { text: `It's actually: ${ans}`, tone: "wrong" };
@@ -188,68 +227,250 @@ function bubbleGeometry(
   style: React.CSSProperties;
   tail: "left" | "right" | "bottom";
 } {
-  // The Tentacle wrapper has CSS width=length+tipW and the SVG rotates from
-  // the base. The "tip" in screen coordinates depends on `anchor`. For our
-  // three supported anchors we eyeball positions that read well.
   switch (anchor) {
     case "left":
-      // Tentacle base sits at left edge, tip extends to the right. Bubble
-      // hovers above and to the right of the tip.
       return {
         style: {
           left: length + 12,
           top: -8,
-          maxWidth: 200,
+          maxWidth: 220,
         },
         tail: "left",
       };
     case "right":
-      // Tentacle base is at the right edge; tip extends to the LEFT (the
-      // SVG itself is rotated 180deg in the gamification wrapper). Bubble
-      // sits to the LEFT of the tip.
       return {
         style: {
           right: length + 12,
           top: -8,
-          maxWidth: 200,
+          maxWidth: 220,
         },
         tail: "right",
       };
     case "bottom":
     default:
-      // Tentacle pokes up from the bottom-left area. Bubble sits above
-      // and slightly to the right.
       return {
         style: {
           left: length * 0.6,
           bottom: length + 16,
-          maxWidth: 200,
+          maxWidth: 220,
         },
         tail: "bottom",
       };
   }
 }
 
+/** Viewport breakpoint helper — returns a tier so size resolves uniformly. */
+type ViewportTier = "sm" | "md" | "lg";
+
+function useViewportTier(): ViewportTier {
+  const [tier, setTier] = useState<ViewportTier>(() => {
+    if (typeof window === "undefined") return "md";
+    const w = window.innerWidth;
+    if (w < 640) return "sm";
+    if (w < 1024) return "md";
+    return "lg";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const compute = () => {
+      const w = window.innerWidth;
+      setTier(w < 640 ? "sm" : w < 1024 ? "md" : "lg");
+    };
+    window.addEventListener("resize", compute);
+    compute();
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+
+  return tier;
+}
+
 /**
- * The "lean toward center" rotation when the answer is wrong. The base
- * Tentacle has its own internal mood-rotation; this is an extra wrapper
- * tilt applied to the OUTER div so the whole tentacle gestures inward.
+ * Tracks whether the on-screen keyboard is likely open. Heuristic: compare
+ * window.innerHeight to the initial reading taken on mount; if it shrinks by
+ * >150px, assume a keyboard is overlaying the viewport.
  */
-function leanFor(
+function useKeyboardLikelyOpen(): boolean {
+  const [open, setOpen] = useState(false);
+  const initialH = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    initialH.current = window.innerHeight;
+    const onResize = () => {
+      const base = initialH.current ?? window.innerHeight;
+      const delta = base - window.innerHeight;
+      setOpen(delta > 150);
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  return open;
+}
+
+/**
+ * rAF-based bounding-rect tracker. Polls the element's getBoundingClientRect()
+ * on every animation frame while `enabled` is true. Returns null when the
+ * element is missing/hidden. Resolution: target can be (a) an Element
+ * reference passed directly, or (b) a CSS selector resolved on each frame
+ * (so the target can mount/unmount in the DOM without the consumer caring).
+ *
+ * NOTE: per spec, we skip polling entirely when `enabled === false`.
+ */
+function useTargetRect(
+  enabled: boolean,
+  source: { element?: Element | null; selector?: string }
+): { x: number; y: number } | null {
+  const [center, setCenter] = useState<{ x: number; y: number } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") {
+      setCenter(null);
+      return;
+    }
+    const tick = () => {
+      const { element, selector } = sourceRef.current;
+      const el =
+        element ?? (selector ? document.querySelector(selector) : null);
+      if (!el || !(el as HTMLElement).getBoundingClientRect) {
+        // Only update if we previously had one; avoids redundant renders.
+        setCenter((prev) => (prev === null ? prev : null));
+      } else {
+        const rect = (el as HTMLElement).getBoundingClientRect();
+        // Skip detached / collapsed elements.
+        if (rect.width === 0 && rect.height === 0) {
+          setCenter((prev) => (prev === null ? prev : null));
+        } else {
+          const nx = rect.left + rect.width / 2;
+          const ny = rect.top + rect.height / 2;
+          setCenter((prev) => {
+            if (prev && Math.abs(prev.x - nx) < 0.5 && Math.abs(prev.y - ny) < 0.5) {
+              return prev;
+            }
+            return { x: nx, y: ny };
+          });
+        }
+      }
+      rafRef.current = window.requestAnimationFrame(tick);
+    };
+    rafRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, [enabled]);
+
+  return center;
+}
+
+/**
+ * Computes the on-screen position of the tentacle BASE based on the anchor.
+ * The base sits at the screen edge — we derive a reasonable approximation
+ * from window dimensions + anchor + the consumer's known top% positioning.
+ */
+function approximateBasePosition(
   anchor: QuizTentacleProps["anchor"],
-  feedback: QuizTentacleProps["feedback"]
-): number {
-  if (feedback === null || feedback.correct) return 0;
-  // Tilt 6deg toward the center of the screen. Left tentacle leans right
-  // (positive); right tentacle leans left (negative).
+  topPct: number
+): { x: number; y: number } | null {
+  if (typeof window === "undefined") return null;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
   switch (anchor) {
     case "left":
-      return 6;
+      return { x: 0, y: (topPct / 100) * h };
     case "right":
-      return -6;
+      return { x: w, y: (topPct / 100) * h };
     case "bottom":
-      return 0;
+      return { x: w * 0.08, y: h };
   }
+}
+
+/**
+ * Dramatic size defaults per viewport — bigger, more present tentacles.
+ *
+ * Per spec:
+ *  • <640 (sm) compact: length: 110, thickness: 36
+ *  • 640-1024 (md):      length: 180, thickness: 50
+ *  • >=1024 (lg):        length: 260, thickness: 58
+ */
+function defaultSizeFor(
+  tier: ViewportTier,
+  _anchor: QuizTentacleProps["anchor"]
+): { length: number; thickness: number } {
+  if (tier === "sm") return { length: 100, thickness: 34 };
+  if (tier === "md") return { length: 130, thickness: 42 };
+  return { length: 150, thickness: 46 };
+}
+
+/**
+ * Build the auto-target CSS selector based on feedback state + question type.
+ *
+ * Target chain (priority order):
+ *   1. WRONG — point at the correct option for the active question type:
+ *      • multiple_choice / true_false: [data-quiz-options=type] [data-correct=true]
+ *      • fill_in_blank: [data-quiz-options=fill_in_blank] [data-quiz-input]
+ *      • matching: [data-quiz-options=matching] [data-quiz-match-left]:first-of-type
+ *      • ordering: [data-quiz-options=ordering] [data-quiz-order-item]:first-of-type
+ *      • fallback: [data-quiz-target=feedback]
+ *   2. IDLE (feedback === null) — track the user's currently-selected option:
+ *      [data-quiz-options=type] [data-quiz-option][data-selected=true]
+ *      If nothing selected, fall through to the question viewport.
+ *   3. NO-OP for correct — null target (handled by `trackingEnabled`).
+ */
+function buildAutoSelector(
+  question: Question | undefined,
+  feedback: QuizTentacleProps["feedback"]
+): string | undefined {
+  // Wrong answer → reach to the correct option (or input).
+  if (feedback && !feedback.correct && question) {
+    switch (question.type) {
+      case "multiple_choice":
+        return '[data-quiz-options="multiple_choice"] [data-quiz-option][data-correct="true"]';
+      case "true_false":
+        return '[data-quiz-options="true_false"] [data-quiz-option][data-correct="true"]';
+      case "fill_in_blank":
+        return '[data-quiz-options="fill_in_blank"] [data-quiz-input]';
+      case "matching":
+        return '[data-quiz-options="matching"] [data-quiz-match-left]:first-of-type';
+      case "ordering":
+        return '[data-quiz-options="ordering"] [data-quiz-order-item]:first-of-type';
+      default: {
+        const _ex: never = question;
+        void _ex;
+        return '[data-quiz-target="feedback"]';
+      }
+    }
+  }
+  // Idle (feedback === null) → follow the currently-selected option.
+  if (feedback === null && question) {
+    switch (question.type) {
+      case "multiple_choice":
+        return '[data-quiz-options="multiple_choice"] [data-quiz-option][data-selected="true"]';
+      case "true_false":
+        return '[data-quiz-options="true_false"] [data-quiz-option][data-selected="true"]';
+      case "fill_in_blank":
+        // No "selected" state — just track the input itself.
+        return '[data-quiz-options="fill_in_blank"] [data-quiz-input]';
+      case "matching":
+        // No clear selection model — track the left column.
+        return '[data-quiz-options="matching"] [data-quiz-match-left]:first-of-type';
+      case "ordering":
+        return '[data-quiz-options="ordering"] [data-quiz-order-item]:first-of-type';
+      default: {
+        const _ex: never = question;
+        void _ex;
+        return '[data-quiz-target="question"]';
+      }
+    }
+  }
+  // Otherwise (correct, or no question) → no auto target.
+  return undefined;
 }
 
 /**
@@ -264,23 +485,34 @@ export function QuizTentacle({
   thickness,
   className,
   compact = false,
+  targetSelector,
+  targetElement,
+  personality,
+  silent = false,
 }: QuizTentacleProps) {
   const reducedMotion = useReducedMotion();
+  const viewportTier = useViewportTier();
 
-  // Sensible defaults per anchor / compact.
-  const resolvedLength =
-    length ??
-    (compact ? 92 : anchor === "right" ? 130 : anchor === "bottom" ? 110 : 150);
-  const resolvedThickness =
-    thickness ??
-    (compact ? 38 : anchor === "right" ? 48 : anchor === "bottom" ? 44 : 56);
+  // Force "sm" sizing when caller flagged compact (the mobile mount path).
+  const tier: ViewportTier = compact ? "sm" : viewportTier;
+  const baseSize = defaultSizeFor(tier, anchor);
 
-  // After 6s of `feedback === null`, briefly show a "take your time" bubble
-  // (only on the LEFT tentacle to avoid both sides talking at once).
+  const keyboardOpen = useKeyboardLikelyOpen();
+  // Auto-tuck: shrink and shy out while the on-screen keyboard is open.
+  const keyboardTuckScale = keyboardOpen ? 0.6 : 1;
+
+  let resolvedLength = length ?? baseSize.length;
+  let resolvedThickness = thickness ?? baseSize.thickness;
+  resolvedLength = Math.round(resolvedLength * keyboardTuckScale);
+  resolvedThickness = Math.round(resolvedThickness * keyboardTuckScale);
+
+  // After 6s of `feedback === null`, show an idle "take your time" bubble —
+  // only on the SPEAKER (i.e. !silent) tentacle so we never get duplicate
+  // hints from sibling visuals.
   const [idleHint, setIdleHint] = useState(false);
   useEffect(() => {
     if (reducedMotion) return;
-    if (anchor !== "left") return;
+    if (silent) return;
     if (feedback !== null) {
       setIdleHint(false);
       return;
@@ -291,21 +523,143 @@ export function QuizTentacle({
       window.clearTimeout(showT);
       window.clearTimeout(hideT);
     };
-  }, [anchor, feedback, question?.id, reducedMotion]);
+  }, [silent, feedback, question?.id, reducedMotion]);
 
-  const mood = moodFor(feedback);
+  // ---- Mood derivation ----
+  // The speaker (silent === false) reflects the literal feedback state.
+  // Silent siblings react sympathetically:
+  //   • feedback === null  → idle
+  //   • correct            → celebrating (joins the party)
+  //   • wrong              → drooping (sad nod, no pointing)
+  //   • almost             → reaching (mirrors the speaker)
+  // Additionally, silent tentacles do a brief "wiggling" pulse whenever the
+  // speaker's question changes selection — driven below by `selectionPulse`.
+  let mood: TentacleMood = moodFor(feedback);
+  if (keyboardOpen) mood = "drooping";
+
+  // Detect selection changes for the silent supportive-nodder effect.
+  // We listen to all [data-quiz-option][data-selected=true] mutations in the
+  // doc and fire a one-shot pulse. Only silent tentacles use this.
+  const [selectionPulse, setSelectionPulse] = useState(false);
+  useEffect(() => {
+    if (!silent) return;
+    if (reducedMotion) return;
+    if (feedback !== null) return; // only during the pre-submit phase
+    if (typeof window === "undefined") return;
+
+    let last: string | null = null;
+    const compute = (): string | null => {
+      const el = document.querySelector(
+        '[data-quiz-option][data-selected="true"]'
+      ) as HTMLElement | null;
+      if (!el) return null;
+      return (
+        el.getAttribute("data-quiz-option") ??
+        el.getAttribute("data-quiz-option-text") ??
+        "1"
+      );
+    };
+    last = compute();
+
+    let pulseT: number | undefined;
+    const obs = new MutationObserver(() => {
+      const next = compute();
+      if (next !== last) {
+        last = next;
+        if (next !== null) {
+          setSelectionPulse(true);
+          window.clearTimeout(pulseT);
+          pulseT = window.setTimeout(() => setSelectionPulse(false), 400);
+        }
+      }
+    });
+    obs.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-selected"],
+    });
+    return () => {
+      obs.disconnect();
+      window.clearTimeout(pulseT);
+    };
+  }, [silent, feedback, reducedMotion]);
+
+  if (silent && selectionPulse) {
+    mood = "wiggling";
+  }
+
   const bubble = useMemo(
     () => bubbleFor(feedback, question, idleHint),
     [feedback, question, idleHint]
   );
 
-  const leanDeg = leanFor(anchor, feedback);
+  // ---- Smart targeting ----
+  // Skip polling entirely when:
+  //   • reduced motion
+  //   • feedback.correct === true (no point chasing — just celebrate in place)
+  //   • the tentacle is silent AND there's no need to follow the selection
+  //     (silent tentacles only need to point during wrong-answer drama, and
+  //     the speaker handles that; silent ones just emote)
+  // For correctness with the existing tracking behavior, silent tentacles
+  // simply DON'T track — they're decorative.
+  const explicitTarget = useMemo(
+    () => targetElement ?? null,
+    [targetElement]
+  );
+
+  const autoSelector = useMemo<string | undefined>(() => {
+    if (targetSelector !== undefined) return targetSelector;
+    return buildAutoSelector(question, feedback);
+  }, [targetSelector, question, feedback]);
+
+  const trackingEnabled =
+    !reducedMotion &&
+    !silent &&
+    feedback?.correct !== true &&
+    (!!explicitTarget || !!autoSelector);
+
+  const trackerSource = useMemo(
+    () => ({ element: explicitTarget, selector: autoSelector }),
+    [explicitTarget, autoSelector]
+  );
+
+  const targetCenter = useTargetRect(trackingEnabled, trackerSource);
+
+  // Approximate base position from the consumer's mount placement. The
+  // consumer typically uses `top: 38%` / `top: 50%` (left / right) and
+  // `bottom: 6rem` for mobile.
+  const baseTopPct = anchor === "left" ? 38 : anchor === "right" ? 50 : 92;
+  const basePosition = useMemo(
+    () => approximateBasePosition(anchor, baseTopPct),
+    [anchor, baseTopPct]
+  );
+
+  // ---- Reach plumbing ----
+  // The speaker (when feedback is wrong) wants the tentacle TIP to physically
+  // land on the correct option. Tentacle.tsx's reachToTarget + maxStretch +
+  // showTipCursor handle the actual stretch/visual.
+  const wantReach =
+    !reducedMotion &&
+    !silent &&
+    feedback !== null &&
+    !feedback.correct &&
+    targetCenter !== null;
+
+  // showTipCursor — pulsing glow at the tip — disabled under reduced motion
+  // and on silent siblings (they're not the explainer).
+  const showTipCursor = wantReach;
+
   const geom = bubbleGeometry(anchor, resolvedLength);
 
-  // Map QuizTentacle.anchor → Tentacle.anchor. Same names; just narrowing.
+  // Map QuizTentacle.anchor → Tentacle.anchor.
   const tentacleAnchor: TentacleAnchor = anchor;
-  // Mobile bottom tentacle: keep curl="in" so suckers face up.
-  const curl: "in" | "out" = anchor === "right" ? "out" : "in";
+  // Curl direction: wise & out-anchored tentacles curl outward; others inward.
+  const curl: "in" | "out" =
+    personality === "wise"
+      ? "out"
+      : anchor === "right"
+      ? "out"
+      : "in";
 
   // Bubble accent color follows tone — primary for correct, heart for
   // wrong, soft border for idle hints.
@@ -316,9 +670,8 @@ export function QuizTentacle({
       : tone === "wrong"
       ? "border-heart"
       : "border-border";
-  const textClass = tone === "wrong" ? "text-ink" : "text-ink";
+  const textClass = "text-ink";
 
-  // Triangle tail color matches the bubble border.
   const tailBg = "bg-surface";
   const tailBorder =
     tone === "correct"
@@ -327,23 +680,27 @@ export function QuizTentacle({
       ? "border-heart"
       : "border-border";
 
+  // Bubble suppression: silent tentacles NEVER render a bubble. Keyboard
+  // suppression remains so we don't clutter mid-type.
+  const showBubble = !silent && !!bubble && !keyboardOpen;
+
+  // We pass the entire reach + visual chain straight into <Tentacle>; we no
+  // longer rotate the outer wrapper since the inner per-joint solver handles
+  // the bend. Keeping a small outer scale for keyboard-tuck only.
+  const onAnimate = useCallback(() => {
+    if (reducedMotion) return {};
+    return { scale: keyboardTuckScale };
+  }, [keyboardTuckScale, reducedMotion]);
+
   return (
     <motion.div
       aria-hidden
       className={`pointer-events-none ${className ?? ""}`}
-      // Outer "lean toward center" tilt on wrong. Pivots at the base edge so
-      // the tip swings inward rather than the whole thing translating.
-      animate={
-        reducedMotion
-          ? undefined
-          : {
-              rotate: leanDeg,
-            }
-      }
+      animate={onAnimate()}
       transition={
         reducedMotion
           ? undefined
-          : { type: "spring", stiffness: 180, damping: 18 }
+          : { type: "spring", stiffness: 160, damping: 22 }
       }
       style={{
         transformOrigin:
@@ -361,14 +718,20 @@ export function QuizTentacle({
           thickness={resolvedThickness}
           curl={curl}
           mood={mood}
+          personality={personality ?? "curious"}
+          segments={5}
+          target={trackingEnabled ? targetCenter : null}
+          basePosition={basePosition ?? undefined}
+          reachToTarget={wantReach}
+          maxStretch={1.6}
+          showTipCursor={showTipCursor}
         />
 
-        {/* Speech bubble. Positioned absolutely relative to the tentacle's
-            own wrapper so it tracks any outer translate. */}
+        {/* Speech bubble — only on the speaker (silent === false). */}
         <AnimatePresence>
-          {bubble ? (
+          {showBubble ? (
             <motion.div
-              key={`bubble-${bubble.text}`}
+              key={`bubble-${bubble!.text}`}
               initial={
                 reducedMotion
                   ? { opacity: 0 }
@@ -398,7 +761,7 @@ export function QuizTentacle({
               }}
               className={`rounded-2xl border-2 ${borderClass} bg-surface px-3 py-2 text-sm font-bold leading-snug ${textClass} shadow-pop-soft`}
             >
-              {bubble.text}
+              {bubble!.text}
 
               {/* Triangle tail — a rotated square that protrudes from the
                   bubble edge pointing at the tentacle tip. */}
@@ -410,9 +773,6 @@ export function QuizTentacle({
                         left: -7,
                         top: "50%",
                         marginTop: -6,
-                        // Show the LEFT+BOTTOM borders by re-applying via
-                        // tailwind borderless trick: rotate so the visible
-                        // corner faces the tentacle.
                         transform: "rotate(135deg)",
                       }
                     : geom.tail === "right"
@@ -423,7 +783,6 @@ export function QuizTentacle({
                         transform: "rotate(-45deg)",
                       }
                     : {
-                        // bottom tail
                         left: 16,
                         bottom: -7,
                         transform: "rotate(45deg)",

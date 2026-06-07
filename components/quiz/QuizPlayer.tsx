@@ -8,6 +8,7 @@ import { useApp } from "@/lib/store";
 import { TopBar } from "./TopBar";
 import { FeedbackBanner, type FeedbackResult } from "./FeedbackBanner";
 import { QuizTentacle } from "./QuizTentacle";
+import { ScreenFX, type ScreenReaction } from "@/components/gamification/ScreenFX";
 import { MultipleChoice } from "./MultipleChoice";
 import { FillInBlank } from "./FillInBlank";
 import { TrueFalse } from "./TrueFalse";
@@ -52,6 +53,14 @@ const COMBO_MILESTONES: Record<number, number> = {
   10: 25,
 };
 
+/** Live coin rewards awarded the instant an exact combo milestone is hit. */
+const COMBO_COINS: Record<number, number> = {
+  3: 3,
+  5: 5,
+  7: 8,
+  10: 12,
+};
+
 /**
  * The central orchestrator. Drives question progression, retry queue, hearts,
  * and emits onFinish when complete. Renders a TopBar, the active question,
@@ -81,6 +90,10 @@ export function QuizPlayer({
   const [head, setHead] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackResult | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+
+  // Screen-level one-shot reaction FX (themed by equipped aura). The `ts`
+  // field is stamped fresh at the moment of each event so ScreenFX fires once.
+  const [fx, setFx] = useState<ScreenReaction | null>(null);
 
   // Track per-question best partial score (0..1) for the FIRST attempt.
   // Only the first attempt counts toward score (parallels missedSet behavior).
@@ -194,8 +207,20 @@ export function QuizPlayer({
             comboBonusRef.current += milestone;
             triggerPing(`🔥 ${correctRunRef.current} in a row! +${milestone}`);
             safeVibrate([10, 30, 60]);
+            // Live coins for hitting an exact combo milestone — but NOT in
+            // practice mode (replaying a completed episode), otherwise a
+            // zero-risk replay loop could mint unlimited coins.
+            const coins = COMBO_COINS[correctRunRef.current];
+            if (coins && !practiceMode) {
+              useApp.getState().earnCoins(coins);
+              triggerPing(`🪙 +${coins}`);
+            }
+            // Bigger combo burst, scaled by the run length.
+            setFx({ type: "combo", n: correctRunRef.current, ts: Date.now() });
           } else {
             triggerPing("+5 XP");
+            // Small celebratory burst for a plain full-credit answer.
+            setFx({ type: "correct", ts: Date.now() });
           }
         } else {
           // Almost — show a soft ping but don't break combo (it didn't add to
@@ -228,6 +253,8 @@ export function QuizPlayer({
         // Wrong! Combo broken.
         correctRunRef.current = 0;
         safeVibrate([20, 60, 20]);
+        // Brief red edge vignette + shake (no confetti).
+        setFx({ type: "wrong", ts: Date.now() });
 
         // First-time miss => optionally lose a heart, mark missed for score.
         if (!current.isRetry) {
@@ -304,30 +331,45 @@ export function QuizPlayer({
 
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden bg-bg">
+      {/* Screen-level reaction FX — themed by the equipped aura. Fires a fresh
+          one-shot whenever `fx.ts` changes (correct / combo / perfect / wrong). */}
+      <ScreenFX reaction={fx} />
+
       {/* Peeking octopus tentacles — react to correct / wrong answers and
-          gesture toward the answer with a speech bubble on misses. Hidden
-          under sm: they crowd narrow screens; revealed on md+ where there's
-          breathing room. Sit BEHIND the question content but ABOVE the bg. */}
+          gesture toward the answer. Single-speaker pattern: exactly ONE
+          tentacle owns the speech bubble per viewport breakpoint.
+            • md+   : LEFT is the speaker; RIGHT is silent (supportive nodder).
+            • <md   : BOTTOM is the speaker (only one mounted on mobile).
+          The speaker physically reaches its TIP onto the correct DOM node
+          on a wrong answer (data-quiz-options + data-correct=true), so
+          the user sees exactly which option they should have picked. */}
       <QuizTentacle
         anchor="left"
+        personality="wise"
+        silent={false}
         question={current?.question}
         feedback={feedback}
-        className="fixed left-0 top-1/2 z-10 hidden -translate-y-1/2 md:block"
+        className="fixed left-0 top-[38%] z-10 hidden -translate-y-1/2 md:block"
       />
       <QuizTentacle
         anchor="right"
+        personality="curious"
+        silent
         question={current?.question}
         feedback={feedback}
-        className="fixed right-0 top-[58%] z-10 hidden -translate-y-1/2 md:block"
+        className="fixed right-0 top-1/2 z-10 hidden -translate-y-1/2 md:block"
       />
-      {/* Single small tentacle on mobile, peeking from the bottom-left corner
-          so it doesn't crowd the question. */}
+      {/* Mobile speaker — left/right are hidden under md, so the bottom
+          tentacle IS the speaker here (silent={false}). Auto-tucks when the
+          on-screen keyboard opens for FillInBlank. */}
       <QuizTentacle
         anchor="bottom"
+        personality="playful"
+        silent={false}
         question={current?.question}
         feedback={feedback}
         compact
-        className="fixed bottom-16 left-2 z-10 block md:hidden"
+        className="fixed bottom-24 left-2 z-10 block md:hidden"
       />
 
       <TopBar
@@ -353,30 +395,34 @@ export function QuizPlayer({
           </div>
         ) : null}
 
-        <AnimatePresence>
-          <motion.div
-            key={`${current.question.id}-${head}-${current.isRetry ? "r" : "p"}`}
-            initial={{ x: 60, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -60, opacity: 0 }}
-            transition={{
-              x: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
-              opacity: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
-            }}
-            // Without mode="wait" overlap is implicit; the new question fades in
-            // at the same time the old one slides out. Exit timing is faster.
-            // (framer-motion respects exit duration if set on transition.)
-            className="flex flex-1 flex-col"
-          >
-            <QuestionRenderer
-              question={current.question}
-              themeColor={themeColor}
-              onSubmit={handleSubmit}
-              onReady={handleReady}
-              locked={feedback !== null}
-            />
-          </motion.div>
-        </AnimatePresence>
+        {/* The data-quiz-target="question" attribute lets QuizTentacles
+            point toward the question viewport center while idle. */}
+        <div data-quiz-target="question" className="flex flex-1 flex-col">
+          <AnimatePresence>
+            <motion.div
+              key={`${current.question.id}-${head}-${current.isRetry ? "r" : "p"}`}
+              initial={{ x: 60, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -60, opacity: 0 }}
+              transition={{
+                x: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
+                opacity: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
+              }}
+              // Without mode="wait" overlap is implicit; the new question fades in
+              // at the same time the old one slides out. Exit timing is faster.
+              // (framer-motion respects exit duration if set on transition.)
+              className="flex flex-1 flex-col"
+            >
+              <QuestionRenderer
+                question={current.question}
+                themeColor={themeColor}
+                onSubmit={handleSubmit}
+                onReady={handleReady}
+                locked={feedback !== null}
+              />
+            </motion.div>
+          </AnimatePresence>
+        </div>
 
         {/* Floating XP pings — calibrated for mobile (don't overlap progress bar). */}
         <div className="pointer-events-none absolute right-4 top-[64px] z-20 flex flex-col items-end gap-1">
@@ -414,11 +460,15 @@ export function QuizPlayer({
         </div>
       ) : null}
 
-      <FeedbackBanner
-        result={feedback}
-        onContinue={handleContinue}
-        isLast={isLast}
-      />
+      {/* The data-quiz-target="feedback" attribute is what QuizTentacles
+          point at when feedback (esp. wrong answers) is showing. */}
+      <div data-quiz-target="feedback">
+        <FeedbackBanner
+          result={feedback}
+          onContinue={handleContinue}
+          isLast={isLast}
+        />
+      </div>
 
       {/* Confirm close */}
       <AnimatePresence>
