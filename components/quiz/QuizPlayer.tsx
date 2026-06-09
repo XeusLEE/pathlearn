@@ -335,20 +335,21 @@ export function QuizPlayer({
           one-shot whenever `fx.ts` changes (correct / combo / perfect / wrong). */}
       <ScreenFX reaction={fx} />
 
-      {/* Peeking octopus tentacles — react to correct / wrong answers and
-          gesture toward the answer. Single-speaker pattern: exactly ONE
-          curling octopus tentacles. On md+ they FLANK the centered question
-          card (not the far viewport edges) so they read as arms beside the
-          options; the speaker shows a bubble with the correct answer on a
-          wrong submit. On mobile a single tentacle sits at the bottom-left
-          (below the options) so it never overlaps the full-width card. */}
+      {/* Peeking octopus tentacles — arms reaching in from OFF-SCREEN (base
+          glued to the viewport edge, root continues past it). The speaker
+          leans its tip toward the correct option on a wrong submit and pops
+          the answer bubble; the silent sibling just emotes. Flanks only
+          render when the gutters beside the centered card (max-w-2xl) are
+          wide enough that a rest-length arm can't cover the options
+          (~1120px). Below that, a single compact tentacle sits bottom-left,
+          out of the card's way. */}
       <QuizTentacle
         anchor="left"
         personality="wise"
         silent={false}
         question={current?.question}
         feedback={feedback}
-        className="fixed top-[42%] z-10 hidden -translate-y-1/2 md:block left-[max(0.5rem,calc(50%-29rem))]"
+        className="fixed top-[42%] z-10 hidden -translate-y-1/2 min-[1120px]:block left-0"
       />
       <QuizTentacle
         anchor="right"
@@ -356,16 +357,19 @@ export function QuizPlayer({
         silent
         question={current?.question}
         feedback={feedback}
-        className="fixed top-[54%] z-10 hidden -translate-y-1/2 md:block left-[calc(50%+16rem)]"
+        className="fixed top-[54%] z-10 hidden -translate-y-1/2 min-[1120px]:block right-0"
       />
+      {/* Compact arm reaches in from the LEFT edge low on the screen (same
+          pattern as the path map's mobile tentacle) — a bottom anchor would
+          float its base above the footer with the root flap exposed. */}
       <QuizTentacle
-        anchor="bottom"
+        anchor="left"
         personality="playful"
         silent={false}
         question={current?.question}
         feedback={feedback}
         compact
-        className="fixed bottom-24 left-2 z-10 block md:hidden"
+        className="fixed bottom-24 left-0 z-10 block min-[1120px]:hidden"
       />
 
       <TopBar

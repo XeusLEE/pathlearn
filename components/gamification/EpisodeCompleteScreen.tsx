@@ -562,7 +562,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "playful",
     leftPct: 0,
     topPct: 100,
-    outerTransform: "translate(-10px, 30px) rotate(-15deg)",
+    outerTransform: "translate(-10px, 64px) rotate(-15deg)",
     length: 150,
     thickness: 52,
     curl: "in",
@@ -575,7 +575,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "curious",
     leftPct: 100,
     topPct: 100,
-    outerTransform: "translate(10px, 30px) rotate(15deg)",
+    outerTransform: "translate(10px, 64px) rotate(15deg)",
     length: 150,
     thickness: 52,
     curl: "out",
@@ -588,7 +588,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "playful",
     leftPct: 30,
     topPct: 100,
-    outerTransform: "translate(-50%, 40px)",
+    outerTransform: "translate(-50%, 74px)",
     length: 120,
     thickness: 44,
     curl: "in",
@@ -602,7 +602,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "wise",
     leftPct: 70,
     topPct: 100,
-    outerTransform: "translate(-50%, 40px)",
+    outerTransform: "translate(-50%, 74px)",
     length: 120,
     thickness: 44,
     curl: "out",
@@ -616,7 +616,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "shy",
     leftPct: 18,
     topPct: 100,
-    outerTransform: "translate(-50%, 38px) rotate(-6deg)",
+    outerTransform: "translate(-50%, 72px) rotate(-6deg)",
     length: 110,
     thickness: 38,
     curl: "in",
@@ -628,7 +628,7 @@ const BASE_TENTACLES: CelebrationTentacleDef[] = [
     personality: "shy",
     leftPct: 82,
     topPct: 100,
-    outerTransform: "translate(-50%, 38px) rotate(6deg)",
+    outerTransform: "translate(-50%, 72px) rotate(6deg)",
     length: 110,
     thickness: 38,
     curl: "out",
@@ -643,7 +643,7 @@ const PERFECT_TOP_TENTACLES: CelebrationTentacleDef[] = [
     personality: "playful",
     leftPct: 0,
     topPct: 0,
-    outerTransform: "translate(-10px, -20px) rotate(-25deg)",
+    outerTransform: "translate(-10px, -54px) rotate(-25deg)",
     length: 160,
     thickness: 48,
     curl: "in",
@@ -656,7 +656,7 @@ const PERFECT_TOP_TENTACLES: CelebrationTentacleDef[] = [
     personality: "playful",
     leftPct: 100,
     topPct: 0,
-    outerTransform: "translate(10px, -20px) rotate(25deg)",
+    outerTransform: "translate(10px, -54px) rotate(25deg)",
     length: 160,
     thickness: 48,
     curl: "out",
@@ -864,9 +864,13 @@ function CelebrationTentacleMount({
           segments={def.segments ?? 4}
           target={target}
           basePosition={basePos ?? undefined}
-          reachToTarget={reachable}
-          showTipCursor={reachable}
-          maxStretch={2.2}
+          /* Lean, don't stretch: tips ORIENT toward the mascot so the fleet
+             reads as an embrace, but stay at rest length. Physical reach
+             stretched every arm into thin ribbons sprawled across the stat
+             cards (the mascot is far out of reach from the bottom edge). */
+          reachToTarget={false}
+          showTipCursor={false}
+          maxStretch={1}
         />
       </div>
     </motion.div>

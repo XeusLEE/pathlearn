@@ -495,9 +495,11 @@ export function PathTentacle({
   // When tucked we want a shy pose; otherwise honor the event.
   const mood: TentacleMood = useMemo(() => {
     if (shouldTuck) return "drooping";
-    if (targetSelector && event.type === "idle") return "reaching";
+    // Idle-with-target stays "idle": the joint solver already bends gently
+    // toward the node (bendStrength 0.55) and the calm wobble reads better
+    // than the agitated "reaching" oscillation on a resting map.
     return moodForEvent(event);
-  }, [event, shouldTuck, targetSelector]);
+  }, [event, shouldTuck]);
 
   const trackedTargetY = snapshot.target?.y ?? null;
   const rotate = useMemo(() => {
@@ -512,9 +514,11 @@ export function PathTentacle({
       (event.type === "idle" || event.type === "reach")
     ) {
       if (typeof window === "undefined") return 0;
+      // The inner joint solver now owns most of the aim (Tentacle.target);
+      // this outer tilt is just supporting body language, so keep it small.
       const baseYpx = (baseTopPct / 100) * window.innerHeight;
       const delta = trackedTargetY - baseYpx;
-      const raw = Math.max(-14, Math.min(14, (delta / 400) * 14));
+      const raw = Math.max(-7, Math.min(7, (delta / 400) * 7));
       return anchor === "left" ? raw : -raw;
     }
     return rotateForEvent(event, anchor, baseTopPct, trackedTargetY);
@@ -562,16 +566,18 @@ export function PathTentacle({
   // companions still get a target but with reachToTarget OFF (cleaner read).
   // We always forward these new flags via a loose record so we compile
   // whether or not Agent B's API is wired up yet.
-  // The path tentacles are decorative EDGE accents — they peek in from the
-  // screen edge and gently lean toward the active node, but never physically
-  // extend across the page (that produced giant flat ribbons on wide screens).
-  // No literal reach, no tip cursor; the gentle lean comes from the outer
-  // wrapper rotation only.
+  // The path tentacles are EDGE accents — base glued to the screen edge,
+  // body curling toward the active node via the inner joint solver. We pass
+  // the live target for the organic bend but keep physical stretch OFF
+  // (reachToTarget false, maxStretch 1) so wide screens never get the old
+  // giant-flat-ribbon failure: the tip leans toward the node, capped at the
+  // tentacle's rest length.
   const extraTentacleProps: Record<string, unknown> = {
-    target: null,
+    target: shouldTuck ? null : snapshot.target,
     personality: effectivePersonality,
     segments: 5,
     reachToTarget: false,
+    maxStretch: 1,
     showTipCursor: false,
   };
 

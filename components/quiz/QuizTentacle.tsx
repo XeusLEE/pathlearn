@@ -245,10 +245,12 @@ function bubbleGeometry(
       };
     case "bottom":
     default:
+      // Beside the arm, not above it — above lands on the lowest option
+      // card on phones.
       return {
         style: {
-          left: length * 0.6,
-          bottom: length + 16,
+          left: length + 10,
+          bottom: Math.round(length * 0.55),
           maxWidth: 220,
         },
         tail: "bottom",
@@ -364,28 +366,6 @@ function useTargetRect(
   }, [enabled]);
 
   return center;
-}
-
-/**
- * Computes the on-screen position of the tentacle BASE based on the anchor.
- * The base sits at the screen edge — we derive a reasonable approximation
- * from window dimensions + anchor + the consumer's known top% positioning.
- */
-function approximateBasePosition(
-  anchor: QuizTentacleProps["anchor"],
-  topPct: number
-): { x: number; y: number } | null {
-  if (typeof window === "undefined") return null;
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  switch (anchor) {
-    case "left":
-      return { x: 0, y: (topPct / 100) * h };
-    case "right":
-      return { x: w, y: (topPct / 100) * h };
-    case "bottom":
-      return { x: w * 0.08, y: h };
-  }
 }
 
 /**
@@ -622,29 +602,30 @@ export function QuizTentacle({
 
   const targetCenter = useTargetRect(trackingEnabled, trackerSource);
 
-  // Approximate base position from the consumer's mount placement. The
-  // consumer typically uses `top: 38%` / `top: 50%` (left / right) and
-  // `bottom: 6rem` for mobile.
-  const baseTopPct = anchor === "left" ? 38 : anchor === "right" ? 50 : 92;
-  const basePosition = useMemo(
-    () => approximateBasePosition(anchor, baseTopPct),
-    [anchor, baseTopPct]
-  );
-
-  // ---- Reach plumbing ----
-  // The speaker (when feedback is wrong) wants the tentacle TIP to physically
-  // land on the correct option. Tentacle.tsx's reachToTarget + maxStretch +
-  // showTipCursor handle the actual stretch/visual.
-  const wantReach =
+  // ---- Pointing ----
+  // On a wrong answer the speaker LEANS its tip toward the correct option
+  // (the bubble carries the answer text; the tip + glow show *where*). No
+  // physical stretch — the lean is capped at rest length, so wide screens
+  // never get the old stranded-ribbon failure. While idle, the same target
+  // plumbing makes the tip gently follow the user's current selection.
+  //
+  // Bottom-anchored tentacles don't point: their base position is derived
+  // from a rotated wrapper's bounding box, which is too imprecise — the
+  // aim reads as a kinked elbow rather than a gesture. They emote instead.
+  const canAim = anchor !== "bottom";
+  const pointing =
+    canAim &&
     !reducedMotion &&
     !silent &&
     feedback !== null &&
     !feedback.correct &&
     targetCenter !== null;
 
-  // showTipCursor — pulsing glow at the tip — disabled under reduced motion
-  // and on silent siblings (they're not the explainer).
-  const showTipCursor = wantReach;
+  // A pointing speaker reaches (extends toward the answer) rather than
+  // drooping — the sad nod is the silent siblings' job. Keyboard tuck wins.
+  if (pointing && !keyboardOpen) {
+    mood = "reaching";
+  }
 
   const geom = bubbleGeometry(anchor, resolvedLength);
 
@@ -717,13 +698,14 @@ export function QuizTentacle({
           mood={mood}
           personality={personality ?? "curious"}
           segments={5}
-          /* Reach DISABLED: the tentacles now flank the question card and
-             simply curl + wave beside the options (the bubble teaches the
-             answer). Literal cross-screen reach depended on an edge-assumed
-             base position and produced stranded flat ribbons on wide screens. */
-          target={null}
+          /* Lean, don't stretch: the joint solver bends the tip toward the
+             target (selected option while idle, correct option on a wrong
+             answer) but maxStretch 1 caps it at rest length — pointing
+             gesture without the old stranded-ribbon failure. */
+          target={canAim && trackingEnabled ? targetCenter : null}
           reachToTarget={false}
-          showTipCursor={false}
+          maxStretch={1}
+          showTipCursor={pointing}
         />
 
         {/* Speech bubble — only on the speaker (silent === false). */}
@@ -756,6 +738,10 @@ export function QuizTentacle({
               style={{
                 position: "absolute",
                 zIndex: 1,
+                // Size to content (up to maxWidth) instead of the tentacle
+                // wrapper's narrow containing block — otherwise the bubble
+                // wraps into a tall skinny tower.
+                width: "max-content",
                 ...geom.style,
               }}
               className={`rounded-2xl border-2 ${borderClass} bg-surface px-3 py-2 text-sm font-bold leading-snug ${textClass} shadow-pop-soft`}

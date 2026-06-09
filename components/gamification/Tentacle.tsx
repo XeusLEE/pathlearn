@@ -257,6 +257,27 @@ function anchorRotation(anchor: TentacleAnchor): number {
   }
 }
 
+/**
+ * Wrapper transform per anchor. "right" mirrors with scaleX(-1) about the
+ * box center so the content stays INSIDE the wrapper box with the base on
+ * the box's right edge — a wrapper pinned at `right: 0` puts the base
+ * exactly on the viewport edge. (The old rotate(180°) about the left edge
+ * threw the whole tentacle outside its own box, leaving it floating
+ * mid-page with a visible severed base.)
+ */
+function wrapperTransform(anchor: TentacleAnchor): {
+  transform: string;
+  origin: string;
+} {
+  if (anchor === "right") {
+    return { transform: "scaleX(-1)", origin: "50% 50%" };
+  }
+  return {
+    transform: `rotate(${anchorRotation(anchor)}deg)`,
+    origin: PIVOT,
+  };
+}
+
 const PIVOT = "0% 50%";
 
 /**
@@ -370,6 +391,10 @@ export function Tentacle({
   // own tip. We allow `overflow: visible` too as a belt + suspenders.
   const baseW = thickness;
   const tipW = Math.max(8, thickness * 0.3);
+  // Root: how far the body continues BEHIND the base (off-screen past the
+  // anchor edge) so the arm never shows a severed flat cut, even while the
+  // whole-body mood rotation swings it.
+  const rootLen = Math.max(20, thickness * 0.6);
   const maxLen = length * Math.max(1, maxStretch);
   const viewH = Math.max(baseW + 96, 160); // generous so the tentacle can bend without clipping
   const midY = viewH / 2;
@@ -388,21 +413,22 @@ export function Tentacle({
   // (length, midY). Idle curl shapes a soft S along the way via curlDir.
   // NOTE: these are rest positions at the *nominal* length — extension is
   // handled per-frame by remapping joint x-coords proportionally.
-  const curlDir = curl === "in" ? 1 : -1;
+  // The mirrored right anchor flips local +y on screen, so we flip curlDir
+  // there to preserve each consumer's intended screen-space curl.
+  const curlDir = (curl === "in" ? 1 : -1) * (anchor === "right" ? -1 : 1);
 
   const restPositions = useMemo(() => {
     const pts: Array<{ x: number; y: number }> = [];
     for (let i = 0; i < jointCount; i++) {
       const t = jointCount === 1 ? 0 : i / (jointCount - 1);
-      const x = length * t;
-      // Pronounced resting S-curve so the arm reads as a curling tentacle
-      // (not a flat paddle): a generous mid-body hump in the curl direction,
-      // then a tip that hooks back the other way. Both scale with viewH so
-      // taller viewBoxes (thicker tentacles) curve proportionally.
-      const hump = Math.sin(t * Math.PI) * (viewH * 0.2) * curlDir;
-      // Tip hook: grows toward the tip (t^2.2) and curls opposite the hump,
-      // giving the end a graceful inward curl like a real tentacle.
-      const tipHook = Math.pow(t, 2.2) * (viewH * 0.18) * curlDir;
+      // Slight arc-length tuck: the hooked tip pulls back toward the body
+      // instead of stretching the silhouette flat.
+      const x = length * (t - 0.07 * Math.pow(t, 3));
+      // Resting curl: a soft mid-body hump in the curl direction, then a
+      // pronounced tip hook the other way — the classic curling-arm pose.
+      // Both scale with viewH so thicker tentacles curve proportionally.
+      const hump = Math.sin(t * Math.PI) * (viewH * 0.16) * curlDir;
+      const tipHook = Math.pow(t, 2.6) * (viewH * 0.26) * curlDir;
       pts.push({ x, y: midY + hump - tipHook });
     }
     return pts;
@@ -582,13 +608,21 @@ export function Tentacle({
       // Vector from base to target in screen space.
       const dx = target.x - effBase.x;
       const dy = target.y - effBase.y;
-      // Inverse-rotate by the anchor rotation so we get into the tentacle's
-      // local frame (where the body extends rightward).
-      const theta = (-anchorRotation(anchor) * Math.PI) / 180;
-      const cs = Math.cos(theta);
-      const sn = Math.sin(theta);
-      const lx = dx * cs - dy * sn;
-      const ly = dx * sn + dy * cs;
+      // Map into the tentacle's local frame (body extends rightward).
+      // The right anchor is a mirror (scaleX(-1)), not a rotation: local x
+      // runs leftward on screen, y is unchanged.
+      let lx: number;
+      let ly: number;
+      if (anchor === "right") {
+        lx = -dx;
+        ly = dy;
+      } else {
+        const theta = (-anchorRotation(anchor) * Math.PI) / 180;
+        const cs = Math.cos(theta);
+        const sn = Math.sin(theta);
+        lx = dx * cs - dy * sn;
+        ly = dx * sn + dy * cs;
+      }
       // If the target is BEHIND the tentacle (lx < 0) we treat the effective
       // distance as the projection (lx capped at 0 for tip x); the tip will
       // still aim toward it visually via ly, but won't reach behind the base.
@@ -668,11 +702,16 @@ export function Tentacle({
           tipLocalX = localTip.x;
           tipLocalY = midY + localTip.y;
         } else {
-          // Project target direction onto a circle of radius effectiveLen.
-          const ux = localTip.x / aimDistLocal;
-          const uy = localTip.y / aimDistLocal;
-          tipLocalX = ux * effectiveLen;
-          tipLocalY = midY + uy * effectiveLen;
+          // Lean: aim the tip along the target direction on a circle of
+          // radius effectiveLen — but clamp the bend ANGLE off the arm's
+          // natural axis. Without this, a target far off-axis (e.g. the
+          // celebration mascot, nearly perpendicular to a bottom-edge arm)
+          // folds the body into a sideways hairpin.
+          const MAX_BEND_RAD = Math.PI / 3; // 60°
+          const phi = Math.atan2(localTip.y, localTip.x);
+          const phiC = Math.max(-MAX_BEND_RAD, Math.min(MAX_BEND_RAD, phi));
+          tipLocalX = Math.cos(phiC) * effectiveLen;
+          tipLocalY = midY + Math.sin(phiC) * effectiveLen;
         }
 
         // The "reach pose" for joint i is rest along x scaled to effectiveLen,
@@ -747,10 +786,24 @@ export function Tentacle({
         tgtY += (dirY / dl) * effectiveLen * overshoot * 0.15;
       }
 
+      // Hard safety clamp: no joint target may leave the tentacle's own
+      // geometric envelope. Guarantees the body can never smear into a
+      // cross-screen ribbon regardless of what the aim math upstream does.
+      tgtX = Math.max(-rootLen, Math.min(maxLen * 1.25, tgtX));
+      tgtY = Math.max(midY - maxLen * 1.1, Math.min(midY + maxLen * 1.1, tgtY));
+
       inputs.current.x[i]!.set(tgtX);
       inputs.current.y[i]!.set(tgtY);
     }
   });
+
+  // Width of the body at tNorm ∈ [0, 1]: near-linear taper with a soft ease
+  // plus a root flare, so the arm reads organic — beefy shoulder, fine tip.
+  const widthAt = (tNorm: number, widthScale: number) => {
+    const w = baseW + (tipW - baseW) * (1 - Math.pow(1 - tNorm, 1.35));
+    const flare = 1 + 0.12 * Math.pow(1 - tNorm, 5);
+    return w * flare * widthScale;
+  };
 
   // ---------------- Body path: derived motion value via useTransform ----------------
   // We compose the closed body path from all spring-smoothed joint values.
@@ -788,9 +841,7 @@ export function Tentacle({
     const widths: number[] = [];
     for (let i = 0; i < jointCount; i++) {
       const tNorm = jointCount === 1 ? 1 : i / (jointCount - 1);
-      // Smooth taper: ease-out so the base stays beefy and the tip is fine.
-      const w = (baseW + (tipW - baseW) * (1 - Math.pow(1 - tNorm, 1.5))) * widthScale;
-      widths.push(w);
+      widths.push(widthAt(tNorm, widthScale));
     }
 
     // Compute perpendicular offsets at each spine point. Tangent at i is
@@ -812,9 +863,15 @@ export function Tentacle({
       bot.push({ x: spine[i]!.x - nx * halfW, y: spine[i]!.y - ny * halfW });
     }
 
+    // Root cap: start BEHIND the base with a slight flare so the body
+    // continues off-screen past the anchor edge — no visible flat cut.
+    const rootHalf = (widths[0]! / 2) * 1.15;
+    const baseY = spine[0]!.y;
+
     // Build top outline with Catmull-Rom segments.
     const parts: string[] = [];
-    parts.push(`M ${top[0]!.x.toFixed(2)} ${top[0]!.y.toFixed(2)}`);
+    parts.push(`M ${(-rootLen).toFixed(2)} ${(baseY - rootHalf).toFixed(2)}`);
+    parts.push(`L ${top[0]!.x.toFixed(2)} ${top[0]!.y.toFixed(2)}`);
     for (let i = 0; i < jointCount - 1; i++) {
       const p0 = top[Math.max(0, i - 1)]!;
       const p1 = top[i]!;
@@ -848,6 +905,8 @@ export function Tentacle({
         catmullRomSegment(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y),
       );
     }
+    // Close through the off-screen root.
+    parts.push(`L ${(-rootLen).toFixed(2)} ${(baseY + rootHalf).toFixed(2)}`);
     parts.push("Z");
     return parts.join(" ");
   });
@@ -872,14 +931,18 @@ export function Tentacle({
       const nx = -ty / tlen;
       const ny = tx / tlen;
       const tNorm = jointCount === 1 ? 1 : i / (jointCount - 1);
-      const w = (baseW + (tipW - baseW) * (1 - Math.pow(1 - tNorm, 1.5))) * widthScale;
+      const w = widthAt(tNorm, widthScale);
       // Sit the highlight 2px inside the top edge.
       const half = w / 2 - 2;
       top.push({ x: spine[i]!.x + nx * half, y: spine[i]!.y + ny * half });
     }
-    // Trim slightly inset from base for the highlight.
+    // Start the highlight at the off-screen root so it doesn't pop into
+    // view mid-body.
     const parts: string[] = [];
-    parts.push(`M ${top[0]!.x.toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`);
+    parts.push(
+      `M ${(-rootLen).toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`,
+    );
+    parts.push(`L ${top[0]!.x.toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`);
     for (let i = 0; i < jointCount - 1; i++) {
       const p0 = top[Math.max(0, i - 1)]!;
       const p1 = top[i]!;
@@ -955,19 +1018,19 @@ export function Tentacle({
     const tlen = Math.hypot(tx, ty) || 1;
     const nx = -ty / tlen;
     const ny = tx / tlen;
-    const widthHere =
-      (baseW + (tipW - baseW) * (1 - Math.pow(1 - t, 1.5))) * widthScale;
+    const widthHere = widthAt(t, widthScale);
     // Push the sucker inward so it sits ~25% from the rim, on the underside.
     const half = widthHere / 2;
     cx += -inwardSign * nx * half * 0.55;
     cy += -inwardSign * ny * half * 0.55;
     // Taper sucker radius with body width.
-    const r = Math.max(1.4, half * 0.22);
+    const r = Math.max(1.6, half * 0.26);
     return { cx, cy, r };
   };
 
-  // curl="in" → suckers on the bottom edge (inwardSign = +1).
-  const inwardSign = curl === "in" ? 1 : -1;
+  // Suckers sit on the inside of the curl. curlDir already accounts for the
+  // mirrored right anchor, so we follow it directly.
+  const inwardSign = curlDir;
 
   // 8 sucker slots. Each sucker is sampled at a fixed t along the spine.
   // useTransform must be called unconditionally — hidden suckers get cx/cy
@@ -1083,8 +1146,8 @@ export function Tentacle({
       style={{
         width: vbWidth,
         height: vbHeight,
-        transform: `rotate(${anchorRotation(anchor)}deg)`,
-        transformOrigin: PIVOT,
+        transform: wrapperTransform(anchor).transform,
+        transformOrigin: wrapperTransform(anchor).origin,
         // Skin CSS vars: recolor the tentacle to match the mascot. When no
         // skin is equipped this is the default purple palette, so the look is
         // identical to before. Spread BEFORE `style` so callers can override.
