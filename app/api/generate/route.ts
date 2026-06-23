@@ -27,7 +27,23 @@ export async function POST(req: Request) {
     );
   }
 
-  const { title, text } = body as { title?: unknown; text?: unknown };
+  const { title, text, aiProvider, aiApiKey, aiMode, aiModelName } = body as {
+    title?: unknown;
+    text?: unknown;
+    aiProvider?: unknown;
+    aiApiKey?: unknown;
+    aiMode?: unknown;
+    aiModelName?: unknown;
+  };
+
+  console.log("[POST /api/generate] Received request:", {
+    title,
+    textLength: typeof text === "string" ? text.length : 0,
+    aiProvider,
+    aiApiKey: typeof aiApiKey === "string" ? (aiApiKey.slice(0, 8) + "...") : "empty",
+    aiMode,
+    aiModelName,
+  });
 
   if (typeof title !== "string" || title.trim().length === 0) {
     return Response.json(
@@ -47,6 +63,10 @@ export async function POST(req: Request) {
     const course = await generateCourse({
       title: title.trim(),
       text,
+      aiProvider: typeof aiProvider === "string" ? aiProvider : undefined,
+      aiApiKey: typeof aiApiKey === "string" ? aiApiKey : undefined,
+      aiMode: typeof aiMode === "string" ? aiMode : undefined,
+      aiModelName: typeof aiModelName === "string" ? aiModelName : undefined,
     });
     return Response.json({ course });
   } catch (err) {

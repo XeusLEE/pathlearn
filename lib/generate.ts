@@ -419,16 +419,52 @@ function buildMockCourse(title: string): Course {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+import Anthropic from "@anthropic-ai/sdk";
+
 export async function generateCourse({
   title,
   text,
+  aiProvider = "claude",
+  aiApiKey = "",
+  aiMode = "demo",
+  aiModelName = "gemini-1.5-flash",
 }: {
   title: string;
   text: string;
+  aiProvider?: string;
+  aiApiKey?: string;
+  aiMode?: string;
+  aiModelName?: string;
 }): Promise<Course> {
-  // Demo mode: no API key configured -> return the mock with a small delay
-  // so the loading UI has something to show.
-  if (!hasClaudeKey()) {
+  console.log("[generateCourse] entry parameters:", {
+    title,
+    textLength: text.length,
+    aiProvider,
+    aiApiKey: aiApiKey ? (aiApiKey.slice(0, 8) + "...") : "empty",
+    aiMode,
+    aiModelName,
+  });
+
+  const isDemo = aiMode === "demo";
+  const effectiveKey =
+    aiApiKey ||
+    (typeof process !== "undefined"
+      ? (aiProvider === "openrouter" ? process.env.OPENROUTER_API_KEY : "") ||
+        (aiProvider === "gemini" ? process.env.GEMINI_API_KEY : "") ||
+        process.env.ANTHROPIC_API_KEY
+      : "") ||
+    "";
+
+  // If we have an effective API key, we should allow AI generation even if the client sent 'demo' mode.
+  // This allows server-side configured keys to just work out-of-the-box for all users.
+  const shouldRunAI = aiMode === "ai" || (aiMode === "demo" && !!effectiveKey);
+
+  if (!shouldRunAI || !effectiveKey) {
+    console.log("[generateCourse] Running in demo mode: returning mock course. Details:", {
+      shouldRunAI,
+      hasKey: !!effectiveKey,
+      aiMode,
+    });
     await sleep(1500);
     return buildMockCourse(title);
   }
@@ -436,14 +472,145 @@ export async function generateCourse({
   const cleaned = cleanText(text);
   const truncated = truncateText(cleaned);
 
+  // -----------------------------------------------------------------
+  // OpenRouter Integration (OpenAI-compatible, supports Gemini/Claude/Llama)
+  // -----------------------------------------------------------------
+  if (aiProvider === "openrouter") {
+    try {
+      const model = aiModelName || "openrouter/free";
+      const prompt = `${SYSTEM_PROMPT}\n\nDocument title: ${title}\n\n---\n\nDocument text:\n\n${truncated}\n\n---\n\nGenerate the Pathlearn course JSON now. Output ONLY the JSON object, nothing else.`;
+
+      console.log("[generateCourse] Call OpenRouter model:", model);
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${effectiveKey}`,
+          "HTTP-Referer": "https://pathlearnerz.com",
+          "X-Title": "Pathlearn",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.4,
+          max_tokens: 7000,
+        }),
+      });
+
+      console.log("[generateCourse] OpenRouter Response Status:", res.status);
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`OpenRouter API returned ${res.status}: ${errText}`);
+      }
+
+      const data = await res.json();
+      const textResponse = data.choices?.[0]?.message?.content;
+      if (!textResponse) {
+        console.error("[generateCourse] No content from OpenRouter:", JSON.stringify(data));
+        throw new Error("Empty response from OpenRouter");
+      }
+
+      const jsonText = extractJsonBlob(textResponse);
+      const parsed = JSON.parse(jsonText);
+
+      if (!isValidCourseShape(parsed)) {
+        throw new Error("OpenRouter output failed shape validation");
+      }
+
+      const course = normalizeCourse(parsed, title);
+      if (course.paths.length === 0) {
+        throw new Error("OpenRouter normalization produced 0 paths");
+      }
+
+      return course;
+    } catch (err) {
+      console.error("[generateCourse] OpenRouter call failed:", err);
+      return buildMockCourse(title);
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Google Gemini Integration
+  // -----------------------------------------------------------------
+  if (aiProvider === "gemini") {
+    try {
+      // Clean up OpenRouter prefix if any
+      let requestedModel = aiModelName || "gemini-3.5-flash";
+      if (requestedModel === "gemini-1.5-flash") requestedModel = "gemini-3.5-flash"; // Auto-upgrade
+      if (requestedModel.includes("/")) {
+        const parts = requestedModel.split("/");
+        requestedModel = parts[parts.length - 1];
+      }
+
+      const geminiPrompt = `${SYSTEM_PROMPT}\n\nDocument title: ${title}\n\n---\n\nDocument text:\n\n${truncated}\n\n---\n\nGenerate the Pathlearn course JSON now.`;
+
+      // Fallback array for demo resilience
+      const modelsToTry = Array.from(new Set([requestedModel, "gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]));
+      
+      let res;
+      let lastErrText = "";
+
+      for (const m of modelsToTry) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${effectiveKey}`;
+        console.log("[generateCourse] Call Gemini:", url.replace(effectiveKey, "HIDDEN_KEY"), "Model:", m);
+        
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: geminiPrompt }] }]
+          })
+        });
+
+        console.log(`[generateCourse] Gemini Model ${m} Response Status:`, res?.status);
+        if (res?.ok) {
+          break; // Success! Exit loop.
+        } else if (res) {
+          lastErrText = await res.text();
+          console.warn(`[generateCourse] Model ${m} failed. Trying next fallback...`);
+        }
+      }
+
+      if (!res || !res.ok) {
+        throw new Error(`Gemini API completely failed after multiple model fallbacks. Last error: ${res?.status} ${lastErrText}`);
+      }
+
+      const data = await res.json();
+      console.log("[generateCourse] Gemini Response Data Success.");
+      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!textResponse) {
+        console.error("[generateCourse] No text candidates in Gemini response:", JSON.stringify(data));
+        throw new Error("Empty response from Gemini");
+      }
+
+      const jsonText = extractJsonBlob(textResponse);
+      const parsed = JSON.parse(jsonText);
+
+      if (!isValidCourseShape(parsed)) {
+        throw new Error("Gemini output failed shape validation");
+      }
+
+      const course = normalizeCourse(parsed, title);
+      if (course.paths.length === 0) {
+        throw new Error("Gemini normalization produced 0 paths");
+      }
+
+      return course;
+    } catch (err) {
+      console.error("[generateCourse] Gemini call failed:", err);
+      return buildMockCourse(title);
+    }
+  }
+
+  // -----------------------------------------------------------------
+  // Anthropic Claude Integration
+  // -----------------------------------------------------------------
   const userMessage = `Document title: ${title}\n\n---\n\nDocument text:\n\n${truncated}\n\n---\n\nGenerate the Pathlearn course JSON now. Remember: ONLY the JSON object, nothing else.`;
 
   let response;
   try {
-    // Use the prompt-caching beta endpoint so the system block can carry
-    // `cache_control: { type: "ephemeral" }` (this SDK version, 0.32.1,
-    // exposes prompt caching as a beta API).
-    response = await claude().beta.promptCaching.messages.create({
+    const client = new Anthropic({ apiKey: effectiveKey });
+    response = await client.beta.promptCaching.messages.create({
       model: MODEL,
       max_tokens: 8000,
       temperature: 0.4,

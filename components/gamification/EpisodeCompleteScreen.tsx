@@ -556,115 +556,36 @@ interface CelebrationTentacleDef {
  * `staggerIdx` controls entrance order; the consumer maps it to delay.
  */
 const BASE_TENTACLES: CelebrationTentacleDef[] = [
-  // Outer bottom-left
+  // Left side — vertically centered, reaching toward mascot
   {
-    anchor: "bottom",
+    anchor: "left",
     personality: "playful",
     leftPct: 0,
-    topPct: 100,
-    outerTransform: "translate(-10px, 64px) rotate(-15deg)",
-    length: 150,
-    thickness: 52,
+    topPct: 50,
+    outerTransform: "none",
+    length: 140,
+    thickness: 44,
     curl: "in",
     staggerIdx: 0,
-    segments: 4,
+    segments: 5,
   },
-  // Outer bottom-right
+  // Right side — vertically centered, reaching toward mascot
   {
-    anchor: "bottom",
+    anchor: "right",
     personality: "curious",
     leftPct: 100,
-    topPct: 100,
-    outerTransform: "translate(10px, 64px) rotate(15deg)",
-    length: 150,
-    thickness: 52,
-    curl: "out",
+    topPct: 50,
+    outerTransform: "none",
+    length: 140,
+    thickness: 44,
+    curl: "in",
     staggerIdx: 1,
-    segments: 4,
-  },
-  // Inner-left (desktop only)
-  {
-    anchor: "bottom",
-    personality: "playful",
-    leftPct: 30,
-    topPct: 100,
-    outerTransform: "translate(-50%, 74px)",
-    length: 120,
-    thickness: 44,
-    curl: "in",
-    staggerIdx: 2,
-    visibility: "hidden sm:block",
-    segments: 4,
-  },
-  // Inner-right (desktop only)
-  {
-    anchor: "bottom",
-    personality: "wise",
-    leftPct: 70,
-    topPct: 100,
-    outerTransform: "translate(-50%, 74px)",
-    length: 120,
-    thickness: 44,
-    curl: "out",
-    staggerIdx: 3,
-    visibility: "hidden sm:block",
-    segments: 4,
-  },
-  // Mid bottom-left (mobile-too — keeps the <sm fleet at 4)
-  {
-    anchor: "bottom",
-    personality: "shy",
-    leftPct: 18,
-    topPct: 100,
-    outerTransform: "translate(-50%, 72px) rotate(-6deg)",
-    length: 110,
-    thickness: 38,
-    curl: "in",
-    staggerIdx: 4,
-  },
-  // Mid bottom-right (mobile-too — total 4 on <sm)
-  {
-    anchor: "bottom",
-    personality: "shy",
-    leftPct: 82,
-    topPct: 100,
-    outerTransform: "translate(-50%, 72px) rotate(6deg)",
-    length: 110,
-    thickness: 38,
-    curl: "out",
-    staggerIdx: 5,
+    segments: 5,
   },
 ];
 
-/** Top-corner tentacles. Mounted only when isPerfect, ≥sm only. */
-const PERFECT_TOP_TENTACLES: CelebrationTentacleDef[] = [
-  {
-    anchor: "top",
-    personality: "playful",
-    leftPct: 0,
-    topPct: 0,
-    outerTransform: "translate(-10px, -54px) rotate(-25deg)",
-    length: 160,
-    thickness: 48,
-    curl: "in",
-    staggerIdx: 6,
-    visibility: "hidden sm:block",
-    segments: 4,
-  },
-  {
-    anchor: "top",
-    personality: "playful",
-    leftPct: 100,
-    topPct: 0,
-    outerTransform: "translate(10px, -54px) rotate(25deg)",
-    length: 160,
-    thickness: 48,
-    curl: "out",
-    staggerIdx: 7,
-    visibility: "hidden sm:block",
-    segments: 4,
-  },
-];
+/** Perfect runs: same 2 tentacles but bigger. No extra tentacles. */
+const PERFECT_TOP_TENTACLES: CelebrationTentacleDef[] = [];
 
 interface CelebrationTentaclesProps {
   isPerfect: boolean;

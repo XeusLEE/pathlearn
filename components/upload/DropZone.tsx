@@ -13,8 +13,8 @@ interface DropZoneProps {
   onClear: () => void;
 }
 
-const ACCEPT = ".txt,.md,text/plain,text/markdown";
-const MAX_BYTES = 1.5 * 1024 * 1024; // 1.5 MB sanity cap
+const ACCEPT = ".txt,.md,.pdf,text/plain,text/markdown,application/pdf";
+const MAX_BYTES = 4.0 * 1024 * 1024; // 4.0 MB sanity cap for documents/PDFs
 
 const isProbablyText = (file: File) => {
   if (file.type) {
@@ -22,11 +22,12 @@ const isProbablyText = (file: File) => {
       file.type.startsWith("text/") ||
       file.type === "application/json" ||
       file.type === "application/xml" ||
+      file.type === "application/pdf" ||
       file.type === ""
     );
   }
   // No mime type — fall back to extension.
-  return /\.(txt|md|markdown|text)$/i.test(file.name);
+  return /\.(txt|md|markdown|text|pdf)$/i.test(file.name);
 };
 
 const fmtSize = (bytes: number) => {
@@ -35,10 +36,41 @@ const fmtSize = (bytes: number) => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
+async function extractTextFromPdf(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+
+  if (!(window as any).pdfjsLib) {
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load PDF parser."));
+      document.head.appendChild(script);
+    });
+  }
+
+  const pdfjsLib = (window as any).pdfjsLib;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+  const pdf = await loadingTask.promise;
+  let text = "";
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map((item: any) => item.str).join(" ");
+    text += pageText + "\n\n";
+  }
+
+  return text;
+}
+
 export function DropZone({ file, onFile, onClear }: DropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOver, setIsOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
 
   const handleFiles = useCallback(
     async (files: FileList | File[] | null) => {
@@ -47,22 +79,33 @@ export function DropZone({ file, onFile, onClear }: DropZoneProps) {
       const f = files[0];
 
       if (!isProbablyText(f)) {
-        setError("That doesn't look like a text file. Try a .txt or .md.");
+        setError("That doesn't look like a text or PDF file. Try a .txt, .md, or .pdf.");
         return;
       }
       if (f.size > MAX_BYTES) {
-        setError("File is a bit chunky — please keep it under 1.5 MB.");
+        setError("File is a bit chunky — please keep it under 4 MB.");
         return;
       }
+
+      setExtracting(true);
       try {
-        const text = await f.text();
+        let text = "";
+        if (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")) {
+          text = await extractTextFromPdf(f);
+        } else {
+          text = await f.text();
+        }
+
         if (!text.trim()) {
-          setError("That file looks empty.");
+          setError("That file looks empty or has no readable text.");
+          setExtracting(false);
           return;
         }
         onFile(f, text);
-      } catch {
-        setError("Couldn't read that file. Try another?");
+      } catch (err) {
+        setError("Couldn't read or extract text from that file. Try another?");
+      } finally {
+        setExtracting(false);
       }
     },
     [onFile]
@@ -122,10 +165,10 @@ export function DropZone({ file, onFile, onClear }: DropZoneProps) {
             </div>
             <div>
               <div className="font-extrabold text-ink text-lg">
-                {isOver ? "Drop it here!" : "Drop a file or tap to browse"}
+                {extracting ? "Extracting text..." : isOver ? "Drop it here!" : "Drop a file or tap to browse"}
               </div>
               <div className="text-sm text-ink-muted font-semibold mt-1">
-                Plain text or markdown · up to 1.5 MB
+                Plain text, markdown, or PDF · up to 4 MB
               </div>
             </div>
           </motion.button>

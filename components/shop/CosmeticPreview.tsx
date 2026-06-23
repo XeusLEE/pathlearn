@@ -110,7 +110,7 @@ export function CosmeticPreview({ equipped, preview }: CosmeticPreviewProps) {
   return (
     <div
       ref={stageRef}
-      className="relative flex h-56 w-full items-center justify-center overflow-hidden"
+      className="relative flex h-56 w-full items-center justify-center overflow-visible"
     >
       {/* Soft stage glow behind the mascot. */}
       <div
@@ -123,13 +123,16 @@ export function CosmeticPreview({ equipped, preview }: CosmeticPreviewProps) {
       />
 
       {/* Left reaching tentacle — sits behind the mascot. */}
-      <div className="pointer-events-none absolute left-0 top-1/2 z-0 -translate-y-1/2">
+      <div
+        className="pointer-events-none absolute left-0 top-1/2 z-0 -translate-y-1/2 flex items-center justify-start"
+        style={{ width: 300, height: 360, overflow: "hidden" }}
+      >
         <Tentacle
           anchor="left"
-          length={120}
-          thickness={34}
+          length={115}
+          thickness={30}
           curl="in"
-          mood="idle"
+          mood="wiggling"
           personality="wise"
           showSuckers
           {...tentacleCosmeticProps}
@@ -137,13 +140,16 @@ export function CosmeticPreview({ equipped, preview }: CosmeticPreviewProps) {
       </div>
 
       {/* Right reaching tentacle — sits behind the mascot. */}
-      <div className="pointer-events-none absolute right-0 top-1/2 z-0 -translate-y-1/2">
+      <div
+        className="pointer-events-none absolute right-0 top-1/2 z-0 -translate-y-1/2 flex items-center justify-end"
+        style={{ width: 300, height: 360, overflow: "hidden" }}
+      >
         <Tentacle
           anchor="right"
-          length={120}
-          thickness={34}
+          length={115}
+          thickness={30}
           curl="in"
-          mood="idle"
+          mood="wiggling"
           personality="playful"
           showSuckers
           {...tentacleCosmeticProps}
