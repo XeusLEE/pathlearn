@@ -3,6 +3,7 @@
 import { Component, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X, Flame, Heart, Zap, ShieldCheck, ShoppingBag } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -78,6 +79,7 @@ function FallbackHUD() {
 }
 
 export default function LearnPage() {
+  const pathname = usePathname();
   const course = useApp((s) => s.course);
   const completedEpisodes = useApp((s) => s.completedEpisodes);
   const streak = useApp((s) => s.streak);
@@ -460,6 +462,7 @@ export default function LearnPage() {
       {!isMobile && (
         <>
           <PathTentacle
+            key={`left-${pathname}`}
             anchor="left"
             baseTopPct={activeNodeTopPct}
             curl="in"
@@ -476,6 +479,7 @@ export default function LearnPage() {
             className="pointer-events-none fixed z-0 tentacle-hide-short-landscape"
           />
           <PathTentacle
+            key={`right-${pathname}`}
             anchor="right"
             baseTopPct={72}
             curl="out"
@@ -498,6 +502,7 @@ export default function LearnPage() {
             Gets the active-node target so the tip points up-right toward the
             current episode, and owns the bubble channel for mobile users. */
         <PathTentacle
+          key={`mobile-${pathname}`}
           anchor="left"
           curl="in"
           event={speakerEvent}

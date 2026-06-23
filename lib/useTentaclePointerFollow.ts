@@ -147,10 +147,13 @@ export function useTentaclePointerFollow(enabled: boolean): PointerFollowState {
       window.removeEventListener("click", onClick);
       if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
       cancelAnimationFrame(rafCheck);
-      // Critical: clear stale focus + reset state on unmount so the next
-      // page doesn't inherit a broken targeting state.
-      clearAllFocusAttrs();
-      setState({ selector: null, active: false, ts: 0 });
+      // NOTE: We intentionally do NOT call clearAllFocusAttrs() or setState
+      // here. During client-side navigation, React mounts the new page's
+      // effects BEFORE running the old page's cleanup. If we cleared DOM
+      // attributes here, we'd wipe what the new page's hook just stamped
+      // (race condition). The new page's hook calls clearAllFocusAttrs()
+      // on mount, which handles stale attributes from the old page. We
+      // also skip setState because it's a no-op on an unmounted component.
     };
   }, [enabled]);
 
