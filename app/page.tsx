@@ -114,10 +114,10 @@ export default function Page() {
         const body = {
           title: activeTitle,
           text: activeText,
-          aiProvider: localSettings.aiProvider || "claude",
+          aiProvider: localSettings.aiProvider || "gemini",
           aiApiKey: localSettings.aiApiKey || "",
           aiMode: localSettings.aiMode || "demo",
-          aiModelName: localSettings.aiModelName || "gemini-1.5-flash",
+          aiModelName: localSettings.aiModelName || "gemini-3.5-flash",
         };
         const res = await fetch("/api/generate", {
           method: "POST",

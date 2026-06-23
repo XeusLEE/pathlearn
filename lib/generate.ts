@@ -493,7 +493,7 @@ export async function generateCourse({
           model,
           messages: [{ role: "user", content: prompt }],
           temperature: 0.4,
-          max_tokens: 4096,
+          max_tokens: 7000,
         }),
       });
 
@@ -534,40 +534,45 @@ export async function generateCourse({
   // -----------------------------------------------------------------
   if (aiProvider === "gemini") {
     try {
-      // Clean up OpenRouter prefix if any (e.g. google/gemini-3.5-flash -> gemini-3.5-flash)
-      let model = aiModelName || "gemini-3.5-flash";
-      if (model === "gemini-1.5-flash") model = "gemini-3.5-flash"; // Auto-upgrade old models
-      if (model.includes("/")) {
-        const parts = model.split("/");
-        model = parts[parts.length - 1];
+      // Clean up OpenRouter prefix if any
+      let requestedModel = aiModelName || "gemini-3.5-flash";
+      if (requestedModel === "gemini-1.5-flash") requestedModel = "gemini-3.5-flash"; // Auto-upgrade
+      if (requestedModel.includes("/")) {
+        const parts = requestedModel.split("/");
+        requestedModel = parts[parts.length - 1];
       }
-      
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${effectiveKey}`;
-      const geminiPrompt = `${SYSTEM_PROMPT}\n\nDocument title: ${title}\n\n---\n\nDocument text:\n\n${truncated}\n\n---\n\nGenerate the Pathlearn course JSON now.`;
-      
-      console.log("[generateCourse] Call Gemini:", url.replace(effectiveKey, "HIDDEN_KEY"), "Model:", model);
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: geminiPrompt
-                }
-              ]
-            }
-          ]
-        })
-      });
 
-      console.log("[generateCourse] Gemini Response Status:", res.status);
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Gemini API returned ${res.status}: ${errText}`);
+      const geminiPrompt = `${SYSTEM_PROMPT}\n\nDocument title: ${title}\n\n---\n\nDocument text:\n\n${truncated}\n\n---\n\nGenerate the Pathlearn course JSON now.`;
+
+      // Fallback array for demo resilience
+      const modelsToTry = Array.from(new Set([requestedModel, "gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash"]));
+      
+      let res;
+      let lastErrText = "";
+
+      for (const m of modelsToTry) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${effectiveKey}`;
+        console.log("[generateCourse] Call Gemini:", url.replace(effectiveKey, "HIDDEN_KEY"), "Model:", m);
+        
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: geminiPrompt }] }]
+          })
+        });
+
+        console.log(`[generateCourse] Gemini Model ${m} Response Status:`, res?.status);
+        if (res?.ok) {
+          break; // Success! Exit loop.
+        } else if (res) {
+          lastErrText = await res.text();
+          console.warn(`[generateCourse] Model ${m} failed. Trying next fallback...`);
+        }
+      }
+
+      if (!res || !res.ok) {
+        throw new Error(`Gemini API completely failed after multiple model fallbacks. Last error: ${res?.status} ${lastErrText}`);
       }
 
       const data = await res.json();
