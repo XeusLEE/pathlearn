@@ -237,11 +237,12 @@ function personalitySpec(
 
 function springConfigFor(jointIdx: number, totalJoints: number) {
   const t = totalJoints <= 1 ? 1 : jointIdx / (totalJoints - 1);
-  // Lerp from base (stiff) to tip (whippy).
-  // Base: stiffness 320, damping 26. Tip: 180 / 16. Linear blend.
-  const stiffness = 320 - (320 - 180) * t;
-  const damping = 26 - (26 - 16) * t;
-  return { stiffness, damping, mass: 0.6 + 0.4 * t };
+  // Lerp from base (stiff) to tip (whippy + fluid).
+  // Base: stiffness 300, damping 24. Tip: 140 / 12 — whippier so the
+  // tip trails and overshoots with a sexy lag.
+  const stiffness = 300 - (300 - 140) * t;
+  const damping = 24 - (24 - 12) * t;
+  return { stiffness, damping, mass: 0.7 + 0.5 * t };
 }
 
 // -----------------------------------------------------------------
@@ -307,7 +308,7 @@ function catmullRomSegment(
   p2y: number,
   p3x: number,
   p3y: number,
-  tension = 1, // 1 = classic Catmull-Rom, smaller = tighter
+  tension = 0.5, // 0.5 = centripetal Catmull-Rom, smoother + no cusps
 ): string {
   const c1x = p1x + ((p2x - p0x) / 6) * tension;
   const c1y = p1y + ((p2y - p0y) / 6) * tension;
@@ -441,12 +442,14 @@ export function Tentacle({
       // Slight arc-length tuck: the hooked tip pulls back toward the body
       // instead of stretching the silhouette flat.
       const x = length * (t - 0.07 * Math.pow(t, 3));
-      // Resting curl: a soft mid-body hump in the curl direction, then a
-      // pronounced tip hook the other way — the classic curling-arm pose.
-      // Both scale with viewH so thicker tentacles curve proportionally.
-      const hump = Math.sin(t * Math.PI) * (viewH * 0.16) * curlDir;
-      const tipHook = Math.pow(t, 2.6) * (viewH * 0.26) * curlDir;
-      pts.push({ x, y: midY + hump - tipHook });
+      // Resting curl: a smooth double-curve S — gentle mid-body hump then
+      // a languid tip hook. Uses eased sine for a more organic, "sexy"
+      // flow instead of a rigid geometric shape.
+      const hump = Math.sin(t * Math.PI) * (viewH * 0.18) * curlDir;
+      const tipHook = Math.pow(t, 2.2) * (viewH * 0.30) * curlDir;
+      // Secondary subtle wave for organic feel.
+      const wave = Math.sin(t * Math.PI * 2.5) * (viewH * 0.03) * curlDir;
+      pts.push({ x, y: midY + hump - tipHook + wave });
     }
     return pts;
   }, [jointCount, length, viewH, midY, curlDir]);
@@ -701,10 +704,10 @@ export function Tentacle({
     const stretchRatio = effectiveLen / length;
 
     // ---- Per-joint target = lerp(rest, aim-pose) + idle perturbation ----
-    // Joint distribution along the spine when reaching/extended: EXPONENTIAL
-    // toward the tip. We use j(i) = (e^(k*i/N) - 1) / (e^k - 1) with k≈2.4
-    // which gives base nearly stationary and tip taking most of the motion.
-    const K = 2.4; // exponential curve sharpness — base stays put, tip dominates
+    // Joint distribution along the spine when reaching/extended: exponential
+    // toward the tip, but softened so more of the body participates in the
+    // bend (sexier S-curve instead of a straight shaft + kinked tip).
+    const K = 1.6; // softer exponential — base still quiet, mid-body flows
     const expDenom = Math.exp(K) - 1;
 
     for (let i = 0; i < jointCount; i++) {
@@ -754,9 +757,9 @@ export function Tentacle({
         // the tip and at high stretch ratios (so an extended arm reads as
         // a clean line, not a wavy noodle).
         if (i > 0 && i < jointCount - 1) {
-          const bias = Math.sin(tNorm * Math.PI) * (viewH * 0.05) * curlDir;
-          const stretchFade = Math.max(0, 1 - (stretchRatio - 1) * 0.7);
-          aimY += bias * (1 - tExp) * stretchFade;
+          const bias = Math.sin(tNorm * Math.PI) * (viewH * 0.08) * curlDir;
+          const stretchFade = Math.max(0, 1 - (stretchRatio - 1) * 0.5);
+          aimY += bias * (1 - tExp * 0.6) * stretchFade;
         }
       }
 
@@ -1003,8 +1006,10 @@ export function Tentacle({
   }, [length]);
   const suckerTs = useMemo(() => {
     const out: number[] = [];
+    // Suckers span 0.16 to 0.82 — avoid the very base AND the thin tip
+    // so dots never sit where the body is too narrow to contain them.
     for (let i = 0; i < suckerCount; i++) {
-      const t = 0.18 + (0.94 - 0.18) * (i / Math.max(1, suckerCount - 1));
+      const t = 0.16 + (0.82 - 0.16) * (i / Math.max(1, suckerCount - 1));
       out.push(t);
     }
     // Pad with -1 (sentinel = hidden) so length is always 8.
@@ -1048,12 +1053,15 @@ export function Tentacle({
     const nx = -ty / tlen;
     const ny = tx / tlen;
     const widthHere = widthAt(t, widthScale);
-    // Push the sucker inward so it sits ~25% from the rim, on the underside.
+    // Push the sucker deep inside the body — 38% from the rim (was 55%)
+    // so it never pokes outside the body outline even on sharp bends.
     const half = widthHere / 2;
-    cx += -inwardSign * nx * half * 0.55;
-    cy += -inwardSign * ny * half * 0.55;
-    // Taper sucker radius with body width.
-    const r = Math.max(1.6, half * 0.26);
+    const offset = half * 0.38;
+    cx += -inwardSign * nx * offset;
+    cy += -inwardSign * ny * offset;
+    // Taper sucker radius with body width, clamped tight so dots never
+    // overflow the body edge. Cap at 28% of half-width (was 26% unclamped).
+    const r = Math.max(1.2, Math.min(half * 0.28, half * 0.28));
     return { cx, cy, r };
   };
 
