@@ -245,7 +245,7 @@ export function ShopScreen() {
 
       <main className="mx-auto w-full max-w-screen-sm flex-1 px-4 pb-safe">
         {/* ---------- Live preview stage ---------- */}
-        <section className="card-pop mt-4 overflow-hidden p-2">
+        <section className="card-pop mt-4 overflow-visible p-2">
           <CosmeticPreview equipped={equipped} preview={preview} />
           <p className="pb-1 text-center text-xs font-bold text-ink-muted">
             {preview ? (

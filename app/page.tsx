@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Sparkles,
   Type,
+  Settings,
+  X,
 } from "lucide-react";
 import {
   Hero,
@@ -44,6 +46,8 @@ export default function Page() {
     tone: "info" | "error";
   } | null>(null);
   const [pasteJustFilled, setPasteJustFilled] = useState(false);
+
+
 
   const showToast = useCallback(
     (message: string, tone: "info" | "error" = "info") => {
@@ -104,9 +108,16 @@ export default function Page() {
           isDemoMode: true,
         };
       } else {
-        const body: GenerateRequest = {
+        const localSettings = typeof window !== "undefined"
+          ? JSON.parse(localStorage.getItem("pathlearn-settings") || "{}")
+          : {};
+        const body = {
           title: activeTitle,
           text: activeText,
+          aiProvider: localSettings.aiProvider || "claude",
+          aiApiKey: localSettings.aiApiKey || "",
+          aiMode: localSettings.aiMode || "demo",
+          aiModelName: localSettings.aiModelName || "gemini-1.5-flash",
         };
         const res = await fetch("/api/generate", {
           method: "POST",
@@ -351,6 +362,8 @@ export default function Page() {
 
       {/* Generating overlay */}
       <Generating show={loading} onCancel={handleCancelGenerating} />
+
+
     </main>
   );
 }

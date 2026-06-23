@@ -113,6 +113,10 @@ export interface TentacleProps {
   maxStretch?: number;
   /** Show a small pulsing glow at the tip when target is set. Default true. */
   showTipCursor?: boolean;
+  /** Shift the tentacle base off-screen / behind boundaries. Default 30. */
+  extraShift?: number;
+  /** How far the body continues BEHIND the base. Default derived from thickness. */
+  baseExtension?: number;
 
   // ---------------- NEW props (cosmetics: skin + trail) ----------------
 
@@ -145,8 +149,8 @@ const MOOD_ANIM: Record<
   { rotate: number[]; scale?: number[]; transition: Transition }
 > = {
   idle: {
-    rotate: [-2, 2, -2],
-    transition: { duration: 3, repeat: Infinity, ease: "easeInOut" },
+    rotate: [-4.5, 4.5, -4.5],
+    transition: { duration: 2.6, repeat: Infinity, ease: "easeInOut" },
   },
   reaching: {
     rotate: [-3, 4, -2, 3, -3],
@@ -194,7 +198,7 @@ function personalitySpec(
   switch (personality) {
     case "shy":
       return {
-        amp: 1 + 1.5 * t,
+        amp: 2 + 3 * t,
         periodMs: 4200,
         phase: t * Math.PI * 0.5,
         // Sag a bit more toward the tip.
@@ -202,14 +206,14 @@ function personalitySpec(
       };
     case "playful":
       return {
-        amp: 3 + 7 * t, // up to ~10 at tip
+        amp: 5 + 10 * t, // up to ~15 at tip
         periodMs: 1400 - 250 * t, // tip moves a hair faster
         phase: t * Math.PI * 1.3,
         bias: 0,
       };
     case "wise":
       return {
-        amp: 2 + 4 * t,
+        amp: 3 + 6 * t,
         periodMs: 3500,
         phase: t * Math.PI * 0.8,
         bias: 0,
@@ -218,7 +222,7 @@ function personalitySpec(
     default:
       // Calm body, tip occasionally lifts.
       return {
-        amp: 1.5 + 6.5 * t * t, // ~8 at tip, tiny at base
+        amp: 2.5 + 9.5 * t * t, // ~12 at tip, tiny at base
         periodMs: 2200,
         phase: t * Math.PI * 1.1,
         bias: 0,
@@ -265,15 +269,23 @@ function anchorRotation(anchor: TentacleAnchor): number {
  * threw the whole tentacle outside its own box, leaving it floating
  * mid-page with a visible severed base.)
  */
-function wrapperTransform(anchor: TentacleAnchor): {
+function wrapperTransform(
+  anchor: TentacleAnchor,
+  vbXOrigin: number,
+  extraShift = 30,
+): {
   transform: string;
   origin: string;
 } {
+  const totalShift = vbXOrigin + extraShift;
   if (anchor === "right") {
-    return { transform: "scaleX(-1)", origin: "50% 50%" };
+    return {
+      transform: `scaleX(-1) translateX(${-totalShift}px)`,
+      origin: "50% 50%",
+    };
   }
   return {
-    transform: `rotate(${anchorRotation(anchor)}deg)`,
+    transform: `rotate(${anchorRotation(anchor)}deg) translateX(${-totalShift}px)`,
     origin: PIVOT,
   };
 }
@@ -337,6 +349,8 @@ export function Tentacle({
   reachToTarget = false,
   maxStretch = 2.2,
   showTipCursor = true,
+  extraShift = 30,
+  baseExtension,
   skinId,
   trailId,
   cosmeticsEnabled = true,
@@ -394,13 +408,20 @@ export function Tentacle({
   // Root: how far the body continues BEHIND the base (off-screen past the
   // anchor edge) so the arm never shows a severed flat cut, even while the
   // whole-body mood rotation swings it.
-  const rootLen = Math.max(20, thickness * 0.6);
+  const rootLen = baseExtension !== undefined ? baseExtension : Math.max(100, thickness * 3.5);
   const maxLen = length * Math.max(1, maxStretch);
-  const viewH = Math.max(baseW + 96, 160); // generous so the tentacle can bend without clipping
+  const viewH_orig = Math.max(length * 1.5, baseW + 120, 200);
+  const midY_orig = viewH_orig / 2;
+  const viewH = Math.max(length * 2.8, baseW + 120); // dynamically scaled larger so bending/wiggling doesn't clip
   const midY = viewH / 2;
+  const yShift = midY - midY_orig;
   const vbHeight = viewH;
-  // viewBox width: extend past `maxLen` so curving up/down doesn't clip the tip.
-  const vbWidth = maxLen + tipW * 2;
+  const vbHeight_orig = viewH_orig;
+  // viewBox x-origin: starts at -rootLen so the entire root flare is
+  // inside the coordinate system (no overflow clipping at the base).
+  const vbXOrigin = rootLen + tipW;
+  // viewBox width: rootLen behind the base + maxLen body + tip margin.
+  const vbWidth = vbXOrigin + maxLen + tipW * 2;
 
   // Wrapper ref — used to resolve basePosition from getBoundingClientRect()
   // when consumers don't supply it explicitly.
@@ -411,11 +432,7 @@ export function Tentacle({
   // ---------------- Per-joint rest positions ----------------
   // In local "base-at-left" space. Joint 0 sits at (0, midY); joint N at
   // (length, midY). Idle curl shapes a soft S along the way via curlDir.
-  // NOTE: these are rest positions at the *nominal* length — extension is
-  // handled per-frame by remapping joint x-coords proportionally.
-  // The mirrored right anchor flips local +y on screen, so we flip curlDir
-  // there to preserve each consumer's intended screen-space curl.
-  const curlDir = (curl === "in" ? 1 : -1) * (anchor === "right" ? -1 : 1);
+  const curlDir = curl === "in" ? 1 : -1;
 
   const restPositions = useMemo(() => {
     const pts: Array<{ x: number; y: number }> = [];
@@ -865,12 +882,12 @@ export function Tentacle({
 
     // Root cap: start BEHIND the base with a slight flare so the body
     // continues off-screen past the anchor edge — no visible flat cut.
-    const rootHalf = (widths[0]! / 2) * 1.15;
+    const rootHalf = widths[0]! / 2;
     const baseY = spine[0]!.y;
 
     // Build top outline with Catmull-Rom segments.
     const parts: string[] = [];
-    parts.push(`M ${(-rootLen).toFixed(2)} ${(baseY - rootHalf).toFixed(2)}`);
+    parts.push(`M ${(-vbXOrigin).toFixed(2)} ${(baseY - rootHalf).toFixed(2)}`);
     parts.push(`L ${top[0]!.x.toFixed(2)} ${top[0]!.y.toFixed(2)}`);
     for (let i = 0; i < jointCount - 1; i++) {
       const p0 = top[Math.max(0, i - 1)]!;
@@ -906,7 +923,8 @@ export function Tentacle({
       );
     }
     // Close through the off-screen root.
-    parts.push(`L ${(-rootLen).toFixed(2)} ${(baseY + rootHalf).toFixed(2)}`);
+    parts.push(`L ${(-vbXOrigin).toFixed(2)} ${(baseY + rootHalf).toFixed(2)}`);
+    parts.push(`L ${(-vbXOrigin).toFixed(2)} ${(baseY - rootHalf).toFixed(2)}`);
     parts.push("Z");
     return parts.join(" ");
   });
@@ -940,7 +958,7 @@ export function Tentacle({
     // view mid-body.
     const parts: string[] = [];
     parts.push(
-      `M ${(-rootLen).toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`,
+      `M ${(-vbXOrigin).toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`,
     );
     parts.push(`L ${top[0]!.x.toFixed(2)} ${(top[0]!.y + 1).toFixed(2)}`);
     for (let i = 0; i < jointCount - 1; i++) {
@@ -1145,9 +1163,10 @@ export function Tentacle({
       className={className}
       style={{
         width: vbWidth,
-        height: vbHeight,
-        transform: wrapperTransform(anchor).transform,
-        transformOrigin: wrapperTransform(anchor).origin,
+        height: vbHeight_orig,
+        transform: wrapperTransform(anchor, vbXOrigin, extraShift).transform,
+        transformOrigin: wrapperTransform(anchor, vbXOrigin, extraShift).origin,
+        overflow: "visible",
         // Skin CSS vars: recolor the tentacle to match the mascot. When no
         // skin is equipped this is the default purple palette, so the look is
         // identical to before. Spread BEFORE `style` so callers can override.
@@ -1157,15 +1176,15 @@ export function Tentacle({
       id={id}
     >
       <motion.svg
-        viewBox={`${-tipW} 0 ${vbWidth} ${vbHeight}`}
+        viewBox={`${-vbXOrigin} 0 ${vbWidth} ${vbHeight}`}
         width={vbWidth}
         height={vbHeight}
         aria-hidden
         style={{
           display: "block",
           overflow: "visible",
-          transformOrigin: PIVOT,
-          translate: `0 ${droopOffset}px`,
+          transformOrigin: `${(vbXOrigin / vbWidth) * 100}% 50%`,
+          translate: `0 ${droopOffset - yShift}px`,
         }}
         animate={
           reducedMotion

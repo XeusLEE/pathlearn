@@ -74,7 +74,7 @@ export function EmptyState() {
         </motion.div>
 
         <p className="mt-5 text-xs text-ink-soft">
-          Paste your notes, or drop a <code className="font-mono text-[0.7rem]">.txt</code> or <code className="font-mono text-[0.7rem]">.md</code> file. PDF support is coming.
+          Paste your notes, or drop a <code className="font-mono text-[0.7rem]">.txt</code>, <code className="font-mono text-[0.7rem]">.md</code>, or <code className="font-mono text-[0.7rem]">.pdf</code> file.
         </p>
       </div>
     </div>
