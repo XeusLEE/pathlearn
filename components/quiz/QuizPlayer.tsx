@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Heart, Sparkles } from "lucide-react";
 import type { Episode, Question } from "@/lib/types";
@@ -74,6 +75,7 @@ export function QuizPlayer({
   onClose,
   onFinish,
 }: QuizPlayerProps) {
+  const pathname = usePathname();
   const totalUnique = episode.questions.length;
 
   // Build initial play queue.
@@ -361,6 +363,7 @@ export function QuizPlayer({
           (~1120px). Below that, a single compact tentacle sits bottom-left,
           out of the card's way. */}
       <QuizTentacle
+        key={`qleft-${pathname}`}
         anchor="left"
         personality="wise"
         silent={false}
@@ -374,6 +377,7 @@ export function QuizPlayer({
         className="fixed top-[42%] z-10 hidden -translate-y-1/2 min-[1120px]:block left-0"
       />
       <QuizTentacle
+        key={`qright-${pathname}`}
         anchor="right"
         personality="curious"
         silent
@@ -390,6 +394,7 @@ export function QuizPlayer({
           pattern as the path map's mobile tentacle) — a bottom anchor would
           float its base above the footer with the root flap exposed. */}
       <QuizTentacle
+        key={`qmobile-${pathname}`}
         anchor="left"
         personality="playful"
         silent={false}
