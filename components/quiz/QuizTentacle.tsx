@@ -67,6 +67,20 @@ export interface QuizTentacleProps {
    * Defaults to false (i.e. the tentacle speaks).
    */
   silent?: boolean;
+  /**
+   * When true, force the tentacle into "reaching" mood (enabling physical
+   * extension) regardless of feedback state. Used for live pointer-follow.
+   */
+  forceReach?: boolean;
+  /**
+   * When true + target resolves, the tip literally lands on the target
+   * (physical extension up to `maxStretch` × length). Default false.
+   */
+  reachToTarget?: boolean;
+  /** Max stretch factor when reaching. Default 1 (no extension). */
+  maxStretch?: number;
+  /** Show a pulsing glow at the tip when a target is set. Default false. */
+  showTipCursor?: boolean;
 }
 
 type BubbleTone = "correct" | "wrong" | "idle";
@@ -466,6 +480,10 @@ export function QuizTentacle({
   targetElement,
   personality,
   silent = false,
+  forceReach = false,
+  reachToTarget = false,
+  maxStretch = 1,
+  showTipCursor = false,
 }: QuizTentacleProps) {
   const reducedMotion = useReducedMotion();
   const viewportTier = useViewportTier();
@@ -579,6 +597,8 @@ export function QuizTentacle({
   //     the speaker handles that; silent ones just emote)
   // For correctness with the existing tracking behavior, silent tentacles
   // simply DON'T track — they're decorative.
+  // EXCEPTION: when forceReach is set (pointer-follow mode), silent tentacles
+  // DO track so both flanks can reach toward the hovered/clicked item.
   const explicitTarget = useMemo(
     () => targetElement ?? null,
     [targetElement]
@@ -591,7 +611,7 @@ export function QuizTentacle({
 
   const trackingEnabled =
     !reducedMotion &&
-    !silent &&
+    (forceReach || !silent) &&
     feedback?.correct !== true &&
     (!!explicitTarget || !!autoSelector);
 
@@ -612,17 +632,20 @@ export function QuizTentacle({
   // Bottom-anchored tentacles don't point: their base position is derived
   // from a rotated wrapper's bounding box, which is too imprecise — the
   // aim reads as a kinked elbow rather than a gesture. They emote instead.
-  const canAim = anchor !== "bottom";
+  // forceReach overrides: the tip physically lands on the hovered/clicked
+  // item regardless of anchor or silent state.
+  const canAim = anchor !== "bottom" || forceReach;
   const pointing =
     canAim &&
     !reducedMotion &&
-    !silent &&
-    feedback !== null &&
-    !feedback.correct &&
-    targetCenter !== null;
+    !keyboardOpen &&
+    targetCenter !== null &&
+    (forceReach ||
+      (!silent && feedback !== null && !feedback.correct));
 
   // A pointing speaker reaches (extends toward the answer) rather than
   // drooping — the sad nod is the silent siblings' job. Keyboard tuck wins.
+  // forceReach always wins mood → reaching so the tip can physically extend.
   if (pointing && !keyboardOpen) {
     mood = "reaching";
   }
@@ -698,14 +721,14 @@ export function QuizTentacle({
           mood={mood}
           personality={personality ?? "curious"}
           segments={5}
-          /* Lean, don't stretch: the joint solver bends the tip toward the
-             target (selected option while idle, correct option on a wrong
-             answer) but maxStretch 1 caps it at rest length — pointing
-             gesture without the old stranded-ribbon failure. */
+          /* When forceReach is active (pointer-follow), the tip physically
+             lands on the hovered/clicked item. Otherwise lean only — the
+             joint solver bends toward the target but maxStretch 1 caps it
+             at rest length, avoiding the stranded-ribbon failure. */
           target={canAim && trackingEnabled ? targetCenter : null}
-          reachToTarget={false}
-          maxStretch={1}
-          showTipCursor={pointing}
+          reachToTarget={forceReach || reachToTarget}
+          maxStretch={forceReach ? maxStretch : 1}
+          showTipCursor={pointing || (forceReach && showTipCursor)}
         />
 
         {/* Speech bubble — only on the speaker (silent === false). */}

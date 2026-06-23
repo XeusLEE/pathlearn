@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Heart, Sparkles } from "lucide-react";
 import type { Episode, Question } from "@/lib/types";
 import { useApp } from "@/lib/store";
+import { useTentaclePointerFollow } from "@/lib/useTentaclePointerFollow";
 import { TopBar } from "./TopBar";
 import { FeedbackBanner, type FeedbackResult } from "./FeedbackBanner";
 import { QuizTentacle } from "./QuizTentacle";
@@ -112,6 +113,22 @@ export function QuizPlayer({
 
   // Episode start time.
   const startedAt = useRef(Date.now());
+
+  // === Pointer-follow: tentacles reach toward hovered/clicked items ========
+  // Both the speaker and silent tentacles physically extend their tips onto
+  // whatever the user is interacting with — answer options, buttons, etc.
+  // Disabled while feedback is showing (correct = celebrate in place; wrong =
+  // speaker points at the correct answer via its own logic) and on reduced
+  // motion. The Tentacle's internal solver handles the bend + stretch — we
+  // just pass the selector + reach flags, no manual length/position math.
+  const prefersReducedMotion = useReducedMotion();
+  const pointerReach = useTentaclePointerFollow(
+    !prefersReducedMotion && feedback === null,
+  );
+  const reachSelector = pointerReach.active
+    ? (pointerReach.selector ?? undefined)
+    : undefined;
+  const reachActive = pointerReach.active;
 
   const hearts = useApp((s) => s.hearts);
   const loseHeart = useApp((s) => s.loseHeart);
@@ -349,6 +366,11 @@ export function QuizPlayer({
         silent={false}
         question={current?.question}
         feedback={feedback}
+        targetSelector={reachSelector}
+        forceReach={reachActive}
+        reachToTarget={reachActive}
+        maxStretch={5}
+        showTipCursor={reachActive}
         className="fixed top-[42%] z-10 hidden -translate-y-1/2 min-[1120px]:block left-0"
       />
       <QuizTentacle
@@ -357,6 +379,11 @@ export function QuizPlayer({
         silent
         question={current?.question}
         feedback={feedback}
+        targetSelector={reachSelector}
+        forceReach={reachActive}
+        reachToTarget={reachActive}
+        maxStretch={5}
+        showTipCursor={false}
         className="fixed top-[54%] z-10 hidden -translate-y-1/2 min-[1120px]:block right-0"
       />
       {/* Compact arm reaches in from the LEFT edge low on the screen (same
@@ -368,6 +395,11 @@ export function QuizPlayer({
         silent={false}
         question={current?.question}
         feedback={feedback}
+        targetSelector={reachSelector}
+        forceReach={reachActive}
+        reachToTarget={reachActive}
+        maxStretch={5}
+        showTipCursor={reachActive}
         compact
         className="fixed bottom-24 left-0 z-10 block min-[1120px]:hidden"
       />
