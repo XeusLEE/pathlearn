@@ -63,8 +63,10 @@ export function useTentaclePointerFollow(enabled: boolean): PointerFollowState {
   });
   const clickLockUntilRef = useRef<number>(0);
   const revertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef<boolean>(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     if (!enabled) return;
     if (typeof window === "undefined") return;
 
@@ -73,12 +75,14 @@ export function useTentaclePointerFollow(enabled: boolean): PointerFollowState {
     clearAllFocusAttrs();
 
     const stamp = (el: HTMLElement) => {
+      if (!mountedRef.current) return;
       clearAllFocusAttrs();
       el.setAttribute(FOCUS_ATTR, "");
       setState({ selector: FOCUS_SELECTOR, active: true, ts: Date.now() });
     };
 
     const clearFocus = () => {
+      if (!mountedRef.current) return;
       if (Date.now() < clickLockUntilRef.current) return; // click-locked
       clearAllFocusAttrs();
       setState((prev) =>
@@ -114,17 +118,17 @@ export function useTentaclePointerFollow(enabled: boolean): PointerFollowState {
       clickLockUntilRef.current = Date.now() + 1300;
       if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
       revertTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
         clickLockUntilRef.current = 0;
         clearFocus();
       }, 1350);
     };
 
     // rAF guard: if the focused element disappears from the DOM (happens
-    // during client-side route changes), reset state immediately. This is
-    // simpler and cheaper than a MutationObserver — we just check once per
-    // frame while active.
+    // during client-side route changes), reset state immediately.
     let rafCheck = 0;
     const checkStale = () => {
+      if (!mountedRef.current) return;
       if (document.querySelector(FOCUS_SELECTOR) === null) {
         clickLockUntilRef.current = 0;
         setState((prev) =>
@@ -142,20 +146,26 @@ export function useTentaclePointerFollow(enabled: boolean): PointerFollowState {
     window.addEventListener("click", onClick, { passive: true });
 
     return () => {
+      mountedRef.current = false;
       window.removeEventListener("pointerover", onPointerOver);
       window.removeEventListener("pointerout", onPointerOut);
       window.removeEventListener("click", onClick);
       if (revertTimerRef.current) clearTimeout(revertTimerRef.current);
       cancelAnimationFrame(rafCheck);
-      // NOTE: We intentionally do NOT call clearAllFocusAttrs() or setState
-      // here. During client-side navigation, React mounts the new page's
-      // effects BEFORE running the old page's cleanup. If we cleared DOM
-      // attributes here, we'd wipe what the new page's hook just stamped
-      // (race condition). The new page's hook calls clearAllFocusAttrs()
-      // on mount, which handles stale attributes from the old page. We
-      // also skip setState because it's a no-op on an unmounted component.
+      // Do NOT call clearAllFocusAttrs() here — React mounts the new page's
+      // effects BEFORE running this cleanup. Wiping DOM attributes now would
+      // destroy what the new page's hook just stamped (race condition).
+      // The new page's hook calls clearAllFocusAttrs() on mount, which
+      // handles any stale attributes from this page.
     };
   }, [enabled]);
+
+  // Reset mounted flag on unmount too (covers StrictMode double-invoke).
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   return state;
 }

@@ -164,6 +164,7 @@ export default function EpisodePage({
 
       {phase === "playing" ? (
         <QuizPlayer
+          key={`${pathId}-${episodeId}-playing`}
           episode={episode}
           themeColor={path.themeColor}
           practiceMode={practiceMode}
@@ -174,6 +175,7 @@ export default function EpisodePage({
 
       {phase === "complete" && completion ? (
         <EpisodeCompleteScreen
+          key={`${pathId}-${episodeId}-complete`}
           episode={episode}
           pathThemeColor={path.themeColor}
           score={completion.payload.score}
