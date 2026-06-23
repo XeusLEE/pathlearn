@@ -94,6 +94,23 @@ export interface PathTentacleProps {
    * Pass `null` for an idle, no-target tentacle.
    */
   targetSelector?: string | null;
+  /**
+   * When true, force the tentacle into "reaching" mood (enabling physical
+   * extension) regardless of `event`. Used for live pointer-follow so the
+   * tip can literally land on the hovered/clicked item even when the event
+   * channel is idle or driving a speech bubble.
+   */
+  forceReach?: boolean;
+  /**
+   * When true + `targetSelector` resolves, the tip literally lands on the
+   * target (physical extension up to `maxStretch` × length). Default false
+   * (lean toward only).
+   */
+  reachToTarget?: boolean;
+  /** Max stretch factor when reaching. Default 1 (no extension). */
+  maxStretch?: number;
+  /** Show a pulsing glow at the tip when a target is set. Default false. */
+  showTipCursor?: boolean;
   /** Personality forwarded to Tentacle; defaults derived from anchor. */
   personality?: PathTentaclePersonality;
   /** Hide the tentacle entirely (used to mute during tab transitions). */
@@ -405,6 +422,10 @@ export function PathTentacle({
   curl = "in",
   style,
   targetSelector = null,
+  forceReach = false,
+  reachToTarget = false,
+  maxStretch = 1,
+  showTipCursor = false,
   personality,
   muted = false,
   silent = false,
@@ -495,17 +516,25 @@ export function PathTentacle({
   // When tucked we want a shy pose; otherwise honor the event.
   const mood: TentacleMood = useMemo(() => {
     if (shouldTuck) return "drooping";
+    // Pointer-follow overrides the event-driven mood so the tip can
+    // physically extend onto the hovered/clicked item even while the
+    // event channel is idle or showing a speech bubble.
+    if (forceReach) return "reaching";
     // Idle-with-target stays "idle": the joint solver already bends gently
     // toward the node (bendStrength 0.55) and the calm wobble reads better
     // than the agitated "reaching" oscillation on a resting map.
     return moodForEvent(event);
-  }, [event, shouldTuck]);
+  }, [event, shouldTuck, forceReach]);
 
   const trackedTargetY = snapshot.target?.y ?? null;
   const rotate = useMemo(() => {
     if (prefersReducedMotion) return 0;
     // Auto-tuck overrides the aim — pull back to neutral.
     if (shouldTuck) return anchor === "left" ? -8 : 8;
+    // When force-reaching, the base follows the target's Y (followTopPct),
+    // so the reach is a clean horizontal line — no outer tilt needed.
+    // Any rotation here would re-introduce the diagonal misalignment.
+    if (forceReach) return 0;
     // If we have a live target (DOM tracking), aim there regardless of
     // event type (as long as nothing transient like react/celebrate is on).
     if (
@@ -530,6 +559,7 @@ export function PathTentacle({
     shouldTuck,
     targetSelector,
     trackedTargetY,
+    forceReach,
   ]);
 
   // === Personality default ==================================================
@@ -560,29 +590,24 @@ export function PathTentacle({
   // it works with the current Tentacle signature; Agent B's new Tentacle may
   // opt to read motion values directly via a different prop in a follow-up.
   //
-  // God-level additions: when targeting is active AND the speaker is reaching,
-  // we ask the base Tentacle to LITERALLY land its tip on the target via
-  // reachToTarget + maxStretch + showTipCursor (Agent B's new API). Silent
-  // companions still get a target but with reachToTarget OFF (cleaner read).
-  // We always forward these new flags via a loose record so we compile
-  // whether or not Agent B's API is wired up yet.
-  // The path tentacles are EDGE accents — base glued to the screen edge,
-  // body curling toward the active node via the inner joint solver. We pass
-  // the live target for the organic bend but keep physical stretch OFF
-  // (reachToTarget false, maxStretch 1) so wide screens never get the old
-  // giant-flat-ribbon failure: the tip leans toward the node, capped at the
-  // tentacle's rest length.
+  // Hide entirely on short landscape or when muted.
+  if (shortLandscape) return null;
+
+  // The Tentacle's internal solver reads the target + its own base position
+  // via getBoundingClientRect() on EVERY animation frame (useAnimationFrame),
+  // so there's no stale state. We just pass the target + reach flags and let
+  // the solver handle the bend + stretch. No followTopPct, no explicitBase,
+  // no reachLength — those all added stale intermediate state that desynced
+  // during navigation. The solver naturally extends the tip to the target
+  // with maxStretch capping how far it can go.
   const extraTentacleProps: Record<string, unknown> = {
     target: shouldTuck ? null : snapshot.target,
     personality: effectivePersonality,
     segments: 5,
-    reachToTarget: false,
-    maxStretch: 1,
-    showTipCursor: false,
+    reachToTarget: shouldTuck ? false : reachToTarget,
+    maxStretch: shouldTuck ? 1 : maxStretch,
+    showTipCursor: shouldTuck ? false : showTipCursor,
   };
-
-  // Hide entirely on short landscape or when muted.
-  if (shortLandscape) return null;
 
   return (
     <div
@@ -593,13 +618,9 @@ export function PathTentacle({
         "pointer-events-none fixed z-0"
       }
       style={{
-        // baseTopPct defines the vertical anchor; left/right is determined by anchor.
         [anchor === "left" ? "left" : "right"]: 0,
         top: `${baseTopPct}%`,
-        // Mute = invisible but still mounted so timers etc. stay alive.
         opacity: muted ? 0 : 1,
-        // Smooth `top` transitions so active-node tracking glides instead of
-        // jumping when the user scrolls / new active node is chosen.
         transition: "opacity 220ms ease-out, top 200ms ease-out",
         ...style,
       }}

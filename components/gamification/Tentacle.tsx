@@ -576,28 +576,39 @@ export function Tentacle({
   useAnimationFrame((tMs) => {
     if (!inputs.current) return;
 
-    // ---- Resolve basePosition once if needed ----
-    if (!basePosition && !resolvedBaseRef.current && wrapperRef.current) {
+    // ---- Resolve basePosition EVERY FRAME if not explicitly provided ----
+    // We used to cache this in resolvedBaseRef and only invalidate on
+    // scroll/resize. But that broke on client-side route changes: the
+    // wrapper moves to a completely new position, the cached base is
+    // stale, and the tentacle aims from the wrong spot ("bugged" arms).
+    // Reading getBoundingClientRect() every frame is cheap (the browser's
+    // rect cache is hot) and guarantees the base is always correct.
+    let effBase = basePosition ?? null;
+    if (!effBase && wrapperRef.current) {
       const rect = wrapperRef.current.getBoundingClientRect();
-      // Anchor-aware "base point": for a left-anchored tentacle the base sits
-      // at the left middle of the wrapper; for right at the right middle; etc.
-      const r = anchor;
-      let bx = rect.left;
-      let by = rect.top + rect.height / 2;
-      if (r === "right") {
-        bx = rect.right;
-        by = rect.top + rect.height / 2;
-      } else if (r === "top") {
-        bx = rect.left + rect.width / 2;
-        by = rect.top;
-      } else if (r === "bottom") {
-        bx = rect.left + rect.width / 2;
-        by = rect.bottom;
+      // Skip zero-size rects (wrapper not laid out yet) to avoid caching
+      // a bogus base at (0,0).
+      if (rect.width > 0 || rect.height > 0) {
+        const r = anchor;
+        let bx = rect.left;
+        let by = rect.top + rect.height / 2;
+        if (r === "right") {
+          bx = rect.right;
+          by = rect.top + rect.height / 2;
+        } else if (r === "top") {
+          bx = rect.left + rect.width / 2;
+          by = rect.top;
+        } else if (r === "bottom") {
+          bx = rect.left + rect.width / 2;
+          by = rect.bottom;
+        }
+        effBase = { x: bx, y: by };
+        resolvedBaseRef.current = effBase;
+      } else {
+        // Fall back to last-known base if wrapper isn't laid out yet.
+        effBase = resolvedBaseRef.current;
       }
-      resolvedBaseRef.current = { x: bx, y: by };
     }
-
-    const effBase = basePosition ?? resolvedBaseRef.current;
 
     // ---- Mood-based extension policy ----
     // Determines the cap on stretch and whether wobble is amplified.
@@ -1129,23 +1140,6 @@ export function Tentacle({
   // ---------------- Mood whole-body envelope ----------------
   const anim = MOOD_ANIM[mood];
   const droopOffset = mood === "drooping" ? viewH * 0.04 : 0;
-
-  // ---------------- Re-resolve basePosition on scroll / resize ----------------
-  // The wrapper's screen position changes when the page scrolls or window
-  // resizes. We invalidate the cached base so the next animation frame
-  // recomputes it via getBoundingClientRect.
-  useEffect(() => {
-    if (basePosition) return;
-    const invalidate = () => {
-      resolvedBaseRef.current = null;
-    };
-    window.addEventListener("scroll", invalidate, { passive: true });
-    window.addEventListener("resize", invalidate);
-    return () => {
-      window.removeEventListener("scroll", invalidate);
-      window.removeEventListener("resize", invalidate);
-    };
-  }, [basePosition]);
 
   // ---------------- Tip cursor visibility & "tap" pulse ----------------
   // The cursor is visible only when a target is set AND showTipCursor is true.

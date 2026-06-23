@@ -6,6 +6,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X, Flame, Heart, Zap, ShieldCheck, ShoppingBag } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { useTentaclePointerFollow } from "@/lib/useTentaclePointerFollow";
 import {
   useApp,
   selectCoins,
@@ -256,6 +257,34 @@ export default function LearnPage() {
     };
   }, [activeEpisodeSelector, prefersReducedMotion]);
 
+  // === Pointer-follow: tip tracks hovered/clicked items ====================
+  // When the user hovers an episode node OR clicks any interactive element,
+  // the speaker tentacle physically reaches its tip onto that element and
+  // shows the tip-cursor glow. Hover follows live; a click "locks" the
+  // target for ~1.3s so the tap reads as acknowledgment even if the pointer
+  // drifts away. When inactive, the tentacle reverts to the active-episode
+  // target (its default soft-pointer behavior).
+  const pointerReach = useTentaclePointerFollow(!prefersReducedMotion);
+
+  // Derived targeting: pointer-follow wins while active; otherwise fall back
+  // to the active-episode selector. The companion joins in only while the
+  // user is actively interacting, so its default stays a calm idle wave.
+  //
+  // The Tentacle's internal solver handles everything: it reads the target
+  // + its own base position on every animation frame and extends the tip
+  // to land on the target. maxStretch 5 lets the tip reach across the
+  // screen; the body's width tapering keeps it from looking like a ribbon.
+  const effectiveTargetSelector = pointerReach.active
+    ? pointerReach.selector
+    : activeEpisodeSelector;
+  const effectiveForceReach = pointerReach.active;
+  const effectiveReachToTarget = pointerReach.active;
+  const effectiveMaxStretch = pointerReach.active ? 5 : 1;
+  const effectiveShowTipCursor = pointerReach.active;
+  const companionTargetSelector = pointerReach.active
+    ? effectiveTargetSelector
+    : null;
+
   // 1) Welcome bubble when activePathId changes — once per session per path.
   //    Only the SPEAKER pops the welcome (single-speaker invariant). The
   //    silent companion gets a non-speaking "ripple" cue at the same time.
@@ -436,7 +465,11 @@ export default function LearnPage() {
             curl="in"
             event={speakerEvent}
             eventTimestamp={speakerTs}
-            targetSelector={activeEpisodeSelector}
+            targetSelector={effectiveTargetSelector}
+            forceReach={effectiveForceReach}
+            reachToTarget={effectiveReachToTarget}
+            maxStretch={effectiveMaxStretch}
+            showTipCursor={effectiveShowTipCursor}
             personality="wise"
             muted={tabsMuted}
             silent={false}
@@ -448,7 +481,11 @@ export default function LearnPage() {
             curl="out"
             event={companionEvent}
             eventTimestamp={companionTs}
-            targetSelector={null}
+            targetSelector={companionTargetSelector}
+            forceReach={effectiveForceReach}
+            reachToTarget={effectiveForceReach}
+            maxStretch={effectiveMaxStretch}
+            showTipCursor={false}
             personality="playful"
             muted={tabsMuted}
             silent={true}
@@ -458,14 +495,18 @@ export default function LearnPage() {
       )}
       {isMobile && (
         /* Mobile speaker — compact tentacle pinned to the bottom-left.
-           Gets the active-node target so the tip points up-right toward the
-           current episode, and owns the bubble channel for mobile users. */
+            Gets the active-node target so the tip points up-right toward the
+            current episode, and owns the bubble channel for mobile users. */
         <PathTentacle
           anchor="left"
           curl="in"
           event={speakerEvent}
           eventTimestamp={speakerTs}
-          targetSelector={activeEpisodeSelector}
+          targetSelector={effectiveTargetSelector}
+          forceReach={effectiveForceReach}
+          reachToTarget={effectiveReachToTarget}
+          maxStretch={effectiveMaxStretch}
+          showTipCursor={effectiveShowTipCursor}
           personality="curious"
           muted={tabsMuted}
           silent={false}
